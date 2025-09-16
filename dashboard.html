@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard - AssignSavvy</title>
+  <link rel="icon" type="image/svg+xml" href="./assets/favicon.svg">
+  <link rel="stylesheet" href="./styles/dashboard.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+  <script src="./config/firebase-web.js"></script>
+</head>
+<body>
+  <div class="dashboard-layout">
+    <!-- Topbar -->
+    <header class="dashboard-topbar">
+      <div class="topbar-left">
+        <button id="sidebar-toggle" class="sidebar-toggle"><i class="fas fa-bars"></i></button>
+        <span class="topbar-logo">AssignSavvy</span>
+      </div>
+      <div class="topbar-actions">
+        <button id="notification-btn" class="notification-btn">
+          <i class="fas fa-bell"></i>
+          <span class="notification-badge" id="notification-badge"></span>
+        </button>
+        <div id="notification-dropdown" class="notification-dropdown"></div>
+        <div id="user-profile-card" class="user-avatar">
+          <i class="fas fa-user"></i>
+        </div>
+      </div>
+    </header>
+
+    <!-- Sidebar -->
+    <aside id="dashboard-sidebar" class="dashboard-sidebar">
+      <nav class="sidebar-nav">
+        <a href="dashboard.html" class="sidebar-nav-item active"><i class="fas fa-chart-line"></i><span>Dashboard</span></a>
+        <a href="writer.html" class="sidebar-nav-item"><i class="fas fa-pen"></i><span>Writer</span></a>
+        <a href="researcher.html" class="sidebar-nav-item"><i class="fas fa-magnifying-glass"></i><span>Researcher</span></a>
+        <a href="detector.html" class="sidebar-nav-item"><i class="fas fa-shield-halved"></i><span>Detector</span></a>
+        <a href="prompt-engineer.html" class="sidebar-nav-item"><i class="fas fa-code"></i><span>Prompt Engineer</span></a>
+        <a href="history.html" class="sidebar-nav-item"><i class="fas fa-clock-rotate-left"></i><span>History</span></a>
+      </nav>
+      <div class="user-account-info">
+        <h4 id="user-name">Loading...</h4>
+        <p id="user-plan">Plan: -</p>
+        <p id="user-credits">0/0 Credits</p>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="dashboard-content">
+      <!-- Welcome -->
+      <section class="welcome-card">
+        <h2 id="welcome-message">Welcome 👋</h2>
+        <p>Boost your productivity with AssignSavvy AI tools</p>
+        <div class="welcome-actions">
+          <a href="writer.html" class="btn primary">Start Writing</a>
+          <a href="researcher.html" class="btn">Research Topic</a>
+        </div>
+      </section>
+
+      <!-- Stats -->
+      <section class="stats-grid">
+        <div class="stat-card">
+          <span class="stat-title">Words Generated</span>
+          <div id="stat-words" class="stat-value">0</div>
+        </div>
+        <div class="stat-card">
+          <span class="stat-title">Projects Completed</span>
+          <div id="stat-projects" class="stat-value">0</div>
+        </div>
+        <div class="stat-card">
+          <span class="stat-title">Credits Used</span>
+          <div id="stat-credits" class="stat-value">0/0</div>
+        </div>
+        <div class="stat-card">
+          <span class="stat-title">Time Saved</span>
+          <div id="stat-time" class="stat-value">0h</div>
+        </div>
+      </section>
+
+      <!-- Tools -->
+      <section>
+        <h3>AI Tools</h3>
+        <div class="tools-grid">
+          <div class="tool-card"><i class="fas fa-pen"></i><span>Writer</span><p id="tool-writer">0 words today</p></div>
+          <div class="tool-card"><i class="fas fa-magnifying-glass"></i><span>Researcher</span><p id="tool-researcher">0 sources found</p></div>
+          <div class="tool-card"><i class="fas fa-shield-halved"></i><span>Detector</span><p id="tool-detector">0% original</p></div>
+          <div class="tool-card"><i class="fas fa-code"></i><span>Prompt Engineer</span><p id="tool-prompt">0 prompts optimized</p></div>
+        </div>
+      </section>
+
+      <!-- Activity -->
+      <section>
+        <h3>Recent Activity</h3>
+        <div id="activity-list" class="activity-card">Loading...</div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Profile Modal -->
+  <div id="user-profile-modal" class="profile-modal">
+    <div class="profile-modal-content">
+      <button id="close-profile-modal" class="profile-modal-close">&times;</button>
+      <h3>User Profile</h3>
+      <p id="modal-user-name">Name</p>
+      <p id="modal-user-email">Email</p>
+      <p id="modal-user-plan">Plan</p>
+    </div>
+  </div>
+
+  <script src="./js/dashboard.js"></script>
+</body>
+</html>
