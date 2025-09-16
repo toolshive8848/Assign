@@ -1,0 +1,77 @@
+body {
+  margin: 0;
+  font-family: 'Inter', sans-serif;
+  background: #f8fafc;
+  color: #1f2937;
+}
+a { text-decoration: none; color: inherit; }
+a:hover { text-decoration: none; }
+
+.dashboard-layout { display: flex; }
+
+/* Sidebar */
+.dashboard-sidebar {
+  width: 220px;
+  background: white;
+  border-right: 1px solid #e2e8f0;
+  padding: 1rem;
+  height: 100vh;
+}
+.sidebar-nav { display: flex; flex-direction: column; gap: 1rem; }
+.sidebar-nav-item {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.5rem 1rem; border-radius: 8px; color: #374151;
+}
+.sidebar-nav-item.active, .sidebar-nav-item:hover {
+  background: #667eea; color: white;
+}
+
+/* Topbar */
+.dashboard-topbar {
+  position: fixed; top: 0; left: 220px; right: 0;
+  height: 60px; display: flex; justify-content: space-between; align-items: center;
+  background: white; border-bottom: 1px solid #e2e8f0;
+  padding: 0 1rem;
+}
+.topbar-logo { font-weight: 700; color: #667eea; }
+.notification-btn { background: none; border: none; position: relative; cursor: pointer; }
+.notification-badge { width: 8px; height: 8px; background: red; border-radius: 50%; position: absolute; top: 5px; right: 5px; }
+
+/* Main Content */
+.dashboard-content { margin-left: 220px; padding: 80px 2rem; flex: 1; }
+.welcome-card {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white; padding: 2rem; border-radius: 1rem; margin-bottom: 2rem;
+}
+.btn { padding: 0.5rem 1rem; border-radius: 6px; font-weight: 600; }
+.btn.primary { background: white; color: #667eea; }
+
+/* Stats */
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap: 1rem; margin-bottom: 2rem; }
+.stat-card { background: white; padding: 1rem; border-radius: 0.75rem; border: 1px solid #e2e8f0; }
+.stat-title { font-size: 0.9rem; color: #6b7280; }
+.stat-value { font-size: 1.5rem; font-weight: 700; }
+
+/* Tools */
+.tools-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap: 1rem; }
+.tool-card { background: white; padding: 1rem; border-radius: 0.75rem; border: 1px solid #e2e8f0; display: flex; flex-direction: column; gap: 0.5rem; }
+
+/* Activity */
+.activity-card { background: white; padding: 1rem; border-radius: 0.75rem; border: 1px solid #e2e8f0; }
+
+/* Profile Modal */
+.profile-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; }
+.profile-modal-content { background: white; padding: 2rem; border-radius: 1rem; max-width: 400px; width: 90%; }
+.profile-modal-close { border: none; background: none; font-size: 1.5rem; float: right; cursor: pointer; }
+
+/* Notifications */
+.notification-dropdown {
+  display: none;
+  position: absolute;
+  top: 60px; right: 1rem;
+  width: 300px; background: white; border: 1px solid #e2e8f0; border-radius: 0.75rem;
+  box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+  z-index: 100;
+}
+.notification-item { padding: 0.75rem; border-bottom: 1px solid #f1f5f9; font-size: 0.9rem; }
+.notification-item:last-child { border-bottom: none; }
