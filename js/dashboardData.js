@@ -1,6 +1,8 @@
+// js/dashboardData.js
 import { auth, db } from "../config/firebase-web.js";
 import {
-  doc, onSnapshot, collection, query, orderBy, limit
+  doc, onSnapshot, collection, query, orderBy, limit,
+  updateDoc, increment, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
 
 class DashboardData {
@@ -20,15 +22,17 @@ class DashboardData {
     });
   }
 
+  // 🔹 Listen to Firestore user document
   listenToUser() {
     const userRef = doc(db, "users", this.user.uid);
     onSnapshot(userRef, (docSnap) => {
       if (!docSnap.exists()) return;
-      const data = docSnap.data() || {};
+      const data = docSnap.data();
       this.updateDashboard(data);
     });
   }
 
+  // 🔹 Listen to Firestore notifications
   listenToNotifications() {
     const notifRef = collection(db, "notifications", this.user.uid, "items");
     const q = query(notifRef, orderBy("timestamp", "desc"), limit(10));
@@ -36,6 +40,7 @@ class DashboardData {
     onSnapshot(q, (snapshot) => {
       const dropdown = document.getElementById("notification-dropdown");
       if (!dropdown) return;
+      dropdown.style.display = "block";
 
       if (snapshot.empty) {
         dropdown.innerHTML = `<p style="color:#94a3b8">No notifications yet</p>`;
@@ -46,8 +51,8 @@ class DashboardData {
         const n = doc.data();
         return `
           <div class="notif-item">
-            <strong>${n.title || "Notification"}</strong>
-            <p>${n.message || ""}</p>
+            <strong>${n.title}</strong>
+            <p>${n.message}</p>
             <span style="font-size:0.8rem;color:#94a3b8">
               ${this.formatTimeAgo(n.timestamp?.toDate?.() || new Date())}
             </span>
@@ -57,6 +62,29 @@ class DashboardData {
     });
   }
 
+  // 🔹 Deduct credits when user uses a tool
+  async deductCredits(amount, statField = null) {
+    if (!this.user) return;
+
+    const userRef = doc(db, "users", this.user.uid);
+    try {
+      const updateData = {
+        credits: increment(-amount),
+        updatedAt: serverTimestamp()
+      };
+
+      if (statField) {
+        updateData[`stats.${statField}`] = increment(amount);
+      }
+
+      await updateDoc(userRef, updateData);
+      console.log(`Deducted ${amount} credits for ${this.user.uid}`);
+    } catch (error) {
+      console.error("Failed to deduct credits:", error);
+    }
+  }
+
+  // 🔹 Update dashboard UI
   updateDashboard(data) {
     this.setText("#user-name", data.displayName || this.user.email);
     this.setText("#user-plan", data.planType || "freemium");
@@ -92,3 +120,5 @@ class DashboardData {
 
 const dashboardData = new DashboardData();
 dashboardData.init();
+
+export default dashboardData;
