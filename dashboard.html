@@ -88,8 +88,35 @@
       </section>
     </main>
   </div>
-
-  <!-- Dashboard Data Script -->
+  
+  <div id="menu-overlay"></div>
+  
+    <!-- Scripts -->
   <script type="module" src="./js/dashboardData.js"></script>
+  <script src="./js/authCheck.js"></script>
+  <script src="./js/mobile-menu.js"></script>
+  <script>
+    // Toggle notifications dropdown
+    document.addEventListener("DOMContentLoaded", () => {
+      const notifBtn = document.getElementById("notification-btn");
+      const notifDropdown = document.getElementById("notification-dropdown");
+
+      if (notifBtn && notifDropdown) {
+        notifBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          notifDropdown.style.display =
+            notifDropdown.style.display === "block" ? "none" : "block";
+        });
+
+        // Close if clicked outside
+        document.addEventListener("click", (e) => {
+          if (!notifDropdown.contains(e.target) && e.target !== notifBtn) {
+            notifDropdown.style.display = "none";
+          }
+        });
+      }
+    });
+  </script>
 </body>
 </html>
+
