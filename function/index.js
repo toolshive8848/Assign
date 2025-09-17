@@ -1,71 +1,111 @@
 // functions/index.js
 const functions = require("firebase-functions");
-const express = require("express");
-const cors = require("cors");
 const admin = require("firebase-admin");
+const express = require("express");
+const bodyParser = require("body-parser");
+const cors = require("cors");
+const Stripe = require("stripe");
 
-// Initialize Firebase Admin with service account
+// ✅ Load config
+const serviceAccount = require("./firebase-admin-key.json");
+const creditSystem = require("./creditsystem"); // your renamed improvedCreditSystem.js
+const stripe = Stripe(process.env.STRIPE_SECRET_KEY); // set in Firebase env
+
+// ✅ Initialize Firebase Admin
 if (!admin.apps.length) {
   admin.initializeApp({
-    credential: admin.credential.cert(require("./firebase-admin-key.json")),
-    databaseURL: `https://${process.env.GCLOUD_PROJECT}.firebaseio.com`,
+    credential: admin.credential.cert(serviceAccount),
   });
 }
-
 const db = admin.firestore();
 
-// Express app
+// ✅ Express app
 const app = express();
 app.use(cors({ origin: true }));
-app.use(express.json());
+app.use(bodyParser.json());
 
-// ========== ROUTES ==========
-
-// Health check
-app.get("/", (req, res) => {
-  res.json({ status: "ok", message: "AssignSavvy backend is running 🚀" });
-});
-
-// Example: Get user profile
-app.get("/user/:uid", async (req, res) => {
+// -------------------
+// Create Checkout Session
+// -------------------
+app.post("/create-checkout-session", async (req, res) => {
   try {
-    const userRef = db.collection("users").doc(req.params.uid);
-    const doc = await userRef.get();
-    if (!doc.exists) {
-      return res.status(404).json({ error: "User not found" });
+    const { priceId, userId } = req.body;
+
+    if (!priceId || !userId) {
+      return res.status(400).json({ error: "Missing priceId or userId" });
     }
-    res.json({ uid: req.params.uid, ...doc.data() });
-  } catch (err) {
-    console.error("Error fetching user:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
 
-// Example: Update credits
-app.post("/user/:uid/credits", async (req, res) => {
-  try {
-    const { amount } = req.body;
-    const userRef = db.collection("users").doc(req.params.uid);
-
-    await db.runTransaction(async (t) => {
-      const snap = await t.get(userRef);
-      if (!snap.exists) throw new Error("User not found");
-
-      const current = snap.data().credits || 0;
-      t.update(userRef, { credits: current + amount });
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      payment_method_types: ["card"],
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: `${process.env.FRONTEND_URL}/payment-success.html`,
+      cancel_url: `${process.env.FRONTEND_URL}/payment.html`,
+      metadata: { userId },
     });
 
-    res.json({ success: true, message: `Added ${amount} credits` });
-  } catch (err) {
-    console.error("Error updating credits:", err);
-    res.status(500).json({ error: err.message });
+    return res.json({ url: session.url });
+  } catch (error) {
+    console.error("❌ Error creating checkout session:", error);
+    return res.status(500).json({ error: error.message });
   }
 });
 
-// TODO: Import & mount your payments route when ready
-// const paymentsRoute = require("./routes/payments");
-// app.use("/payments", paymentsRoute);
+// -------------------
+// Stripe Webhook
+// -------------------
+app.post("/webhook", bodyParser.raw({ type: "application/json" }), async (req, res) => {
+  const sig = req.headers["stripe-signature"];
 
-// ========== EXPORT ==========
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+  } catch (err) {
+    console.error("❌ Webhook signature verification failed.", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
 
+  // Handle Stripe events
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+    const userId = session.metadata.userId;
+
+    console.log(`✅ Checkout completed for user ${userId}`);
+
+    try {
+      // Update Firestore user doc
+      const userRef = db.collection("users").doc(userId);
+      await userRef.set(
+        {
+          planType: "premium",
+          subscriptionId: session.subscription,
+          stripeCustomerId: session.customer,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      // Allocate credits
+      await creditSystem.allocateCredits(userId, "premium");
+
+      console.log(`🎉 Premium plan + credits added to user ${userId}`);
+    } catch (err) {
+      console.error("🔥 Firestore update failed:", err.message);
+    }
+  }
+
+  if (event.type === "invoice.payment_failed") {
+    const session = event.data.object;
+    console.warn(`⚠️ Payment failed for subscription ${session.subscription}`);
+    // TODO: downgrade user if needed
+  }
+
+  res.json({ received: true });
+});
+
+// ✅ Export Cloud Function
 exports.api = functions.https.onRequest(app);
