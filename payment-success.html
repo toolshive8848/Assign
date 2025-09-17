@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Payment Successful - AssignSavvy</title>
+  <link rel="stylesheet" href="./styles/main.css"/>
+</head>
+<body>
+  <div class="success-container">
+    <h1>✅ Payment Successful</h1>
+    <p>Thank you for upgrading! Your account has been updated.</p>
+
+    <div class="plan-summary">
+      <h2>Your New Plan</h2>
+      <p><strong>Plan:</strong> <span id="plan-type">Loading...</span></p>
+      <p><strong>Credits:</strong> <span id="plan-credits">Loading...</span></p>
+      <p><strong>Next Renewal:</strong> <span id="renewal-date">Loading...</span></p>
+    </div>
+
+    <div class="actions">
+      <a href="dashboard.html" class="btn-primary">Go to Dashboard</a>
+    </div>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+  <script src="./config/firebase-web.js"></script>
+
+  <script>
+    firebase.auth().onAuthStateChanged(async (user) => {
+      if (!user) {
+        return (window.location.href = "auth.html");
+      }
+
+      const userRef = firebase.firestore().collection("users").doc(user.uid);
+      const userDoc = await userRef.get();
+
+      if (userDoc.exists) {
+        const data = userDoc.data();
+
+        document.getElementById("plan-type").textContent =
+          data.planType || "freemium";
+
+        document.getElementById("plan-credits").textContent =
+          data.credits ? `${data.credits} credits` : "0 credits";
+
+        if (data.subscriptionEndDate) {
+          const date = data.subscriptionEndDate.toDate();
+          document.getElementById("renewal-date").textContent =
+            date.toLocaleDateString();
+        } else {
+          document.getElementById("renewal-date").textContent =
+            "No renewal (one-time)";
+        }
+      } else {
+        document.querySelector(".plan-summary").innerHTML =
+          "<p>Error: Could not load your plan.</p>";
+      }
+    });
+  </script>
+</body>
+</html>
