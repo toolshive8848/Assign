@@ -1,12 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dashboard - AssignSavvy</title>
-  <link rel="icon" type="image/svg+xml" href="./assets/favicon.svg" />
-  <link rel="stylesheet" href="./styles/dashboard.css" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link rel="icon" type="image/svg+xml" href="./assets/favicon.svg">
+  <link rel="stylesheet" href="./styles/dashboard.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
@@ -19,36 +19,32 @@
     <!-- Topbar -->
     <header class="dashboard-topbar">
       <div class="topbar-left">
-        <button id="sidebar-toggle" class="sidebar-toggle"><i class="fas fa-bars"></i></button>
+        <button class="sidebar-toggle" id="sidebar-toggle"><i class="fas fa-bars"></i></button>
         <span class="topbar-logo">AssignSavvy</span>
       </div>
       <h1 class="topbar-title">Dashboard</h1>
       <div class="topbar-actions">
-        <button id="notification-btn" class="notification-btn">
-          <i class="fas fa-bell"></i>
-          <span id="notification-badge" class="notification-badge"></span>
-        </button>
-        <a href="index.html" class="home-btn"><i class="fas fa-home"></i> Home</a>
+        <button class="notification-btn" id="notification-btn"><i class="fas fa-bell"></i></button>
+        <div class="notification-dropdown" id="notification-dropdown"></div>
+        <a href="index.html" class="home-btn"><i class="fas fa-home"></i> <span>Home</span></a>
       </div>
     </header>
 
     <!-- Sidebar -->
-    <aside id="dashboard-sidebar" class="dashboard-sidebar">
-      <nav>
-        <ul class="sidebar-nav">
-          <li><a href="dashboard.html" class="active"><i class="fas fa-chart-line"></i> <span>Dashboard</span></a></li>
-          <li><a href="writer.html"><i class="fas fa-pen"></i> <span>Writer</span></a></li>
-          <li><a href="researcher.html"><i class="fas fa-magnifying-glass"></i> <span>Researcher</span></a></li>
-          <li><a href="detector.html"><i class="fas fa-shield-halved"></i> <span>Detector</span></a></li>
-          <li><a href="prompt-engineer.html"><i class="fas fa-code"></i> <span>Prompt Engineer</span></a></li>
-          <li><a href="history.html"><i class="fas fa-clock-rotate-left"></i> <span>History</span></a></li>
-        </ul>
+    <aside class="dashboard-sidebar" id="dashboard-sidebar">
+      <nav class="sidebar-nav">
+        <a href="dashboard.html" class="sidebar-item active"><i class="fas fa-chart-line"></i><span>Dashboard</span></a>
+        <a href="writer.html" class="sidebar-item"><i class="fas fa-pen"></i><span>Writer</span></a>
+        <a href="researcher.html" class="sidebar-item"><i class="fas fa-magnifying-glass"></i><span>Researcher</span></a>
+        <a href="detector.html" class="sidebar-item"><i class="fas fa-shield-halved"></i><span>Detector</span></a>
+        <a href="prompt-engineer.html" class="sidebar-item"><i class="fas fa-code"></i><span>Prompt Engineer</span></a>
+        <a href="history.html" class="sidebar-item"><i class="fas fa-clock"></i><span>History</span></a>
       </nav>
-      <div class="user-card" id="user-card">
-        <div class="avatar"><i class="fas fa-user"></i></div>
-        <div class="details">
+      <div class="user-profile-card" id="user-profile-card">
+        <div class="user-avatar"><i class="fas fa-user"></i></div>
+        <div class="user-details">
           <h4 id="user-name">Loading...</h4>
-          <p id="user-plan">Free Plan</p>
+          <p id="user-plan">Loading...</p>
           <p id="user-credits">0/200 Credits</p>
         </div>
       </div>
@@ -56,41 +52,41 @@
 
     <!-- Main Content -->
     <main class="dashboard-content">
+      <!-- Welcome -->
       <section class="welcome-card">
         <h2 id="welcome-message">Welcome 👋</h2>
-        <p>Ready to create amazing content today?</p>
-        <div class="welcome-actions">
-          <a href="writer.html" class="btn primary"><i class="fas fa-pen"></i> Start Writing</a>
-          <a href="researcher.html" class="btn"><i class="fas fa-magnifying-glass"></i> Research</a>
-        </div>
+        <p>Boost your productivity and create amazing content today!</p>
       </section>
 
       <!-- Stats -->
       <section class="stats-grid">
-        <div class="stat-card"><span class="stat-title">Words Generated</span><p id="stat-words">0</p></div>
-        <div class="stat-card"><span class="stat-title">Projects Completed</span><p id="stat-projects">0</p></div>
-        <div class="stat-card"><span class="stat-title">Credits Used</span><p id="stat-credits">0/200</p></div>
-        <div class="stat-card"><span class="stat-title">Time Saved</span><p id="stat-time">0h</p></div>
+        <div class="stat-card"><h3>Words Generated</h3><p class="stat-value">0</p></div>
+        <div class="stat-card"><h3>Projects Completed</h3><p class="stat-value">0</p></div>
+        <div class="stat-card"><h3>Credits Used</h3><p class="stat-value">0/200</p></div>
+        <div class="stat-card"><h3>Time Saved</h3><p class="stat-value">0h</p></div>
       </section>
 
       <!-- Tools -->
-      <h3 class="section-title">AI Tools</h3>
-      <div class="tools-grid">
-        <div class="tool-card"><i class="fas fa-pen"></i> Writer <p id="tool-writer">0 words today</p></div>
-        <div class="tool-card"><i class="fas fa-magnifying-glass"></i> Researcher <p id="tool-research">0 sources found</p></div>
-        <div class="tool-card"><i class="fas fa-shield-halved"></i> Detector <p id="tool-detector">0% original</p></div>
-        <div class="tool-card"><i class="fas fa-code"></i> Prompt Engineer <p id="tool-prompt">0 prompts optimized</p></div>
-      </div>
+      <section>
+        <h3>AI Tools</h3>
+        <div class="tools-grid">
+          <div class="tool-card"><h4>Writer</h4><p>Generate high-quality academic writing.</p><p class="tool-stat">0 words today</p></div>
+          <div class="tool-card"><h4>Researcher</h4><p>Find and organize credible sources.</p><p class="tool-stat">0 sources found</p></div>
+          <div class="tool-card"><h4>Detector</h4><p>Check for plagiarism & AI-generated text.</p><p class="tool-stat">0% original</p></div>
+          <div class="tool-card"><h4>Prompt Engineer</h4><p>Optimize prompts for better AI results.</p><p class="tool-stat">0 prompts optimized</p></div>
+        </div>
+      </section>
 
-      <!-- Recent Activity -->
-      <h3 class="section-title">Recent Activity</h3>
-      <div id="activity-section" class="activity-card"></div>
+      <!-- Activity -->
+      <section>
+        <h3>Recent Activity</h3>
+        <div class="activity-card" id="activity-card">
+          <p>No recent activity yet.</p>
+        </div>
+      </section>
     </main>
   </div>
 
-  <!-- Notifications Dropdown -->
-  <div id="notification-dropdown" class="notification-dropdown"></div>
-
-  <script src="./js/dashboard.js"></script>
+  <script type="module" src="./js/dashboardData.js"></script>
 </body>
 </html>
