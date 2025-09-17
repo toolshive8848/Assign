@@ -6,6 +6,8 @@
   <title>Dashboard - AssignSavvy</title>
   <link rel="icon" type="image/svg+xml" href="./assets/favicon.svg">
   <link rel="stylesheet" href="./styles/dashboard.css">
+  <link rel="stylesheet" href="./styles/main.css">
+  <link rel="stylesheet" href="./styles/mobile-menu.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
   <!-- Firebase SDK -->
@@ -60,20 +62,20 @@
 
       <!-- Stats -->
       <section class="stats-grid">
-        <div class="stat-card"><h3>Words Generated</h3><p class="stat-value">0</p></div>
-        <div class="stat-card"><h3>Projects Completed</h3><p class="stat-value">0</p></div>
-        <div class="stat-card"><h3>Credits Used</h3><p class="stat-value">0/200</p></div>
-        <div class="stat-card"><h3>Time Saved</h3><p class="stat-value">0h</p></div>
+        <div class="stat-card"><h3>Words Generated</h3><p class="stat-value" id="stat-words">0</p></div>
+        <div class="stat-card"><h3>Projects Completed</h3><p class="stat-value" id="stat-projects">0</p></div>
+        <div class="stat-card"><h3>Credits Used</h3><p class="stat-value" id="stat-credits">0/200</p></div>
+        <div class="stat-card"><h3>Time Saved</h3><p class="stat-value" id="stat-time">0h</p></div>
       </section>
 
       <!-- Tools -->
       <section>
         <h3>AI Tools</h3>
         <div class="tools-grid">
-          <div class="tool-card"><h4>Writer</h4><p>Generate high-quality academic writing.</p><p class="tool-stat">0 words today</p></div>
-          <div class="tool-card"><h4>Researcher</h4><p>Find and organize credible sources.</p><p class="tool-stat">0 sources found</p></div>
-          <div class="tool-card"><h4>Detector</h4><p>Check for plagiarism & AI-generated text.</p><p class="tool-stat">0% original</p></div>
-          <div class="tool-card"><h4>Prompt Engineer</h4><p>Optimize prompts for better AI results.</p><p class="tool-stat">0 prompts optimized</p></div>
+          <div class="tool-card"><h4>Writer</h4><p>Generate high-quality academic writing.</p><p class="tool-stat" id="tool-writer">0 words today</p></div>
+          <div class="tool-card"><h4>Researcher</h4><p>Find and organize credible sources.</p><p class="tool-stat" id="tool-researcher">0 sources found</p></div>
+          <div class="tool-card"><h4>Detector</h4><p>Check for plagiarism & AI-generated text.</p><p class="tool-stat" id="tool-detector">0% original</p></div>
+          <div class="tool-card"><h4>Prompt Engineer</h4><p>Optimize prompts for better AI results.</p><p class="tool-stat" id="tool-prompt">0 prompts optimized</p></div>
         </div>
       </section>
 
@@ -87,6 +89,7 @@
     </main>
   </div>
 
+  <!-- Dashboard Data Script -->
   <script type="module" src="./js/dashboardData.js"></script>
 </body>
 </html>
