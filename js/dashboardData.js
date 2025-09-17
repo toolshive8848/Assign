@@ -1,4 +1,3 @@
-// js/dashboardData.js
 import { auth, db } from "../config/firebase-web.js";
 import {
   doc, onSnapshot, collection, query, orderBy, limit
@@ -25,7 +24,7 @@ class DashboardData {
     const userRef = doc(db, "users", this.user.uid);
     onSnapshot(userRef, (docSnap) => {
       if (!docSnap.exists()) return;
-      const data = docSnap.data();
+      const data = docSnap.data() || {};
       this.updateDashboard(data);
     });
   }
@@ -37,7 +36,6 @@ class DashboardData {
     onSnapshot(q, (snapshot) => {
       const dropdown = document.getElementById("notification-dropdown");
       if (!dropdown) return;
-      dropdown.style.display = "block";
 
       if (snapshot.empty) {
         dropdown.innerHTML = `<p style="color:#94a3b8">No notifications yet</p>`;
@@ -48,9 +46,11 @@ class DashboardData {
         const n = doc.data();
         return `
           <div class="notif-item">
-            <strong>${n.title}</strong>
-            <p>${n.message}</p>
-            <span style="font-size:0.8rem;color:#94a3b8">${this.formatTimeAgo(n.timestamp?.toDate?.() || new Date())}</span>
+            <strong>${n.title || "Notification"}</strong>
+            <p>${n.message || ""}</p>
+            <span style="font-size:0.8rem;color:#94a3b8">
+              ${this.formatTimeAgo(n.timestamp?.toDate?.() || new Date())}
+            </span>
           </div>
         `;
       }).join("");
