@@ -1,13 +1,19 @@
 // js/dashboardData.js
 import { auth, db } from "../config/firebase-web.js";
 import {
-  doc, onSnapshot, collection, query, orderBy, limit,
-  updateDoc, increment, serverTimestamp
+  doc,
+  getDoc,
+  onSnapshot,
+  collection,
+  query,
+  orderBy,
+  limit
 } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
 
 class DashboardData {
   constructor() {
     this.user = null;
+    this.planCache = {}; // Cache plans to avoid extra reads
   }
 
   init() {
@@ -22,17 +28,18 @@ class DashboardData {
     });
   }
 
-  // 🔹 Listen to Firestore user document
   listenToUser() {
     const userRef = doc(db, "users", this.user.uid);
-    onSnapshot(userRef, (docSnap) => {
+    onSnapshot(userRef, async (docSnap) => {
       if (!docSnap.exists()) return;
       const data = docSnap.data();
-      this.updateDashboard(data);
+
+      // Fetch plan dynamically
+      const planInfo = await this.getPlan(data.planType || "freemium");
+      this.updateDashboard(data, planInfo);
     });
   }
 
-  // 🔹 Listen to Firestore notifications
   listenToNotifications() {
     const notifRef = collection(db, "notifications", this.user.uid, "items");
     const q = query(notifRef, orderBy("timestamp", "desc"), limit(10));
@@ -53,49 +60,45 @@ class DashboardData {
           <div class="notif-item">
             <strong>${n.title}</strong>
             <p>${n.message}</p>
-            <span style="font-size:0.8rem;color:#94a3b8">
-              ${this.formatTimeAgo(n.timestamp?.toDate?.() || new Date())}
-            </span>
+            <span style="font-size:0.8rem;color:#94a3b8">${this.formatTimeAgo(n.timestamp?.toDate?.() || new Date())}</span>
           </div>
         `;
       }).join("");
     });
   }
 
-  // 🔹 Deduct credits when user uses a tool
-  async deductCredits(amount, statField = null) {
-    if (!this.user) return;
+  async getPlan(planType) {
+    if (this.planCache[planType]) return this.planCache[planType];
 
-    const userRef = doc(db, "users", this.user.uid);
     try {
-      const updateData = {
-        credits: increment(-amount),
-        updatedAt: serverTimestamp()
-      };
+      const planRef = doc(db, "plans", planType);
+      const planSnap = await getDoc(planRef);
 
-      if (statField) {
-        updateData[`stats.${statField}`] = increment(amount);
+      if (!planSnap.exists()) {
+        console.warn(`Plan "${planType}" not found, defaulting to freemium`);
+        return { maxCredits: 200, name: "Freemium" };
       }
 
-      await updateDoc(userRef, updateData);
-      console.log(`Deducted ${amount} credits for ${this.user.uid}`);
-    } catch (error) {
-      console.error("Failed to deduct credits:", error);
+      const planData = planSnap.data();
+      this.planCache[planType] = planData;
+      return planData;
+    } catch (err) {
+      console.error("Error fetching plan:", err);
+      return { maxCredits: 200, name: "Freemium" };
     }
   }
 
-  // 🔹 Update dashboard UI
-  updateDashboard(data) {
-    this.setText("#user-name", data.displayName || this.user.email);
-    this.setText("#user-plan", data.planType || "freemium");
-    this.setText("#user-credits", `${data.credits || 0}/${this.getTotalCredits(data.planType)} Credits`);
-    this.setText("#welcome-message", `Welcome back, ${(data.displayName || "User").split(" ")[0]}! 👋`);
+  updateDashboard(userData, planInfo) {
+    this.setText("#user-name", userData.displayName || this.user.email);
+    this.setText("#user-plan", planInfo.name || userData.planType || "Freemium");
+    this.setText("#user-credits", `${userData.credits || 0}/${planInfo.maxCredits} Credits`);
+    this.setText("#welcome-message", `Welcome back, ${(userData.displayName || "User").split(" ")[0]}! 👋`);
 
     // Stats
-    const s = data.stats || {};
+    const s = userData.stats || {};
     this.setText(".stat-card:nth-child(1) .stat-value", this.formatNumber(s.wordsGenerated || 0));
     this.setText(".stat-card:nth-child(2) .stat-value", s.projectsCompleted || 0);
-    this.setText(".stat-card:nth-child(3) .stat-value", `${data.credits || 0}/${this.getTotalCredits(data.planType)}`);
+    this.setText(".stat-card:nth-child(3) .stat-value", `${userData.credits || 0}/${planInfo.maxCredits}`);
     this.setText(".stat-card:nth-child(4) .stat-value", this.formatTime(s.timeSaved || 0));
 
     // Tools
@@ -106,8 +109,10 @@ class DashboardData {
   }
 
   // Helpers
-  setText(selector, text) { const el = document.querySelector(selector); if (el) el.textContent = text; }
-  getTotalCredits(plan) { return plan === "premium" ? 2000 : plan === "custom" ? 3300 : 200; }
+  setText(selector, text) {
+    const el = document.querySelector(selector);
+    if (el) el.textContent = text;
+  }
   formatNumber(num) { return num >= 1000 ? (num/1000).toFixed(1)+"k" : num; }
   formatTime(h) { return h >= 24 ? `${Math.floor(h/24)}d` : `${h}h`; }
   formatTimeAgo(t) {
@@ -120,5 +125,3 @@ class DashboardData {
 
 const dashboardData = new DashboardData();
 dashboardData.init();
-
-export default dashboardData;
