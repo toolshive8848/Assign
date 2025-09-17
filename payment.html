@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AssignSavvy - Checkout</title>
+  <link rel="stylesheet" href="./styles/main.css"/>
+  <script src="https://js.stripe.com/v3/"></script>
+</head>
+<body>
+  <div class="checkout-container">
+    <h1>Select Your Plan</h1>
+    <p>Upgrade to unlock all features.</p>
+
+    <div class="plans">
+      <button class="checkout-btn" data-price="price_free" disabled>
+        Freemium (Free)
+      </button>
+
+      <button class="checkout-btn" data-price="price_pro">
+        Pro - $9.99/month
+      </button>
+
+      <button class="checkout-btn" data-price="price_custom">
+        Custom - $15 Top-up
+      </button>
+    </div>
+  </div>
+
+  <script>
+    // ✅ Replace with your Firebase Functions API endpoint
+    const API_BASE = "https://us-central1-YOUR_PROJECT.cloudfunctions.net/api";
+
+    document.querySelectorAll(".checkout-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const priceId = btn.getAttribute("data-price");
+
+        try {
+          // Get logged-in user ID (from Firebase Auth)
+          const user = firebase.auth().currentUser;
+          if (!user) {
+            alert("Please log in first.");
+            return window.location.href = "auth.html";
+          }
+
+          const token = await user.getIdToken();
+
+          const res = await fetch(`${API_BASE}/create-checkout-session`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ priceId, userId: user.uid }),
+          });
+
+          const data = await res.json();
+          if (data.url) {
+            window.location.href = data.url; // Redirect to Stripe Checkout
+          } else {
+            alert("Error: " + (data.error || "Unable to start checkout"));
+          }
+        } catch (err) {
+          console.error("Checkout error", err);
+          alert("Something went wrong. Try again.");
+        }
+      });
+    });
+  </script>
+
+  <!-- Firebase App (required for auth) -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <script src="./config/firebase-web.js"></script>
+</body>
+</html>
