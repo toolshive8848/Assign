@@ -1,27 +1,32 @@
-// mobile-menu.js
-// Handles mobile navigation toggle with smooth slide-in/out
-
+// ===== Mobile Menu Toggle =====
 document.addEventListener("DOMContentLoaded", () => {
-  const toggleBtn = document.getElementById("mobile-menu-toggle");
-  const navMenu = document.querySelector(".nav-links");
+  const toggle = document.getElementById("mobile-menu-toggle");
+  const menu = document.getElementById("nav-links");
+  const overlay = document.getElementById("menu-overlay");
 
-  if (toggleBtn && navMenu) {
-    toggleBtn.addEventListener("click", () => {
-      const expanded = toggleBtn.getAttribute("aria-expanded") === "true" || false;
-      toggleBtn.setAttribute("aria-expanded", !expanded);
-      navMenu.classList.toggle("active");
+  if (!toggle || !menu || !overlay) return;
+
+  // Toggle open/close
+  toggle.addEventListener("click", () => {
+    toggle.classList.toggle("active");
+    menu.classList.toggle("active");
+    overlay.classList.toggle("active");
+  });
+
+  // Close menu when clicking on overlay
+  overlay.addEventListener("click", () => {
+    toggle.classList.remove("active");
+    menu.classList.remove("active");
+    overlay.classList.remove("active");
+  });
+
+  // Close menu when a nav link is clicked
+  const navLinks = menu.querySelectorAll("a");
+  navLinks.forEach((link) => {
+    link.addEventListener("click", () => {
+      toggle.classList.remove("active");
+      menu.classList.remove("active");
+      overlay.classList.remove("active");
     });
-  }
-
-  // Close menu when clicking outside
-  document.addEventListener("click", (e) => {
-    if (
-      navMenu.classList.contains("active") &&
-      !navMenu.contains(e.target) &&
-      !toggleBtn.contains(e.target)
-    ) {
-      navMenu.classList.remove("active");
-      toggleBtn.setAttribute("aria-expanded", false);
-    }
   });
 });
