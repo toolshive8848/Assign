@@ -867,24 +867,44 @@
       });
     }
     
-    function downloadContent() {
-      const content = document.getElementById('content-editor').value;
-      if (!content.trim()) {
-        alert('No content to download!');
-        return;
-      }
-      
-      const blob = new Blob([content], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `ai-generated-content-${new Date().toISOString().slice(0, 10)}.txt`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }
-    
+  async function downloadContent() {
+  const content = document.getElementById('content-editor').value;
+
+  if (!content.trim()) {
+    alert('No content to download!');
+    return;
+  }
+
+  // 🔑 Try to detect a title (first non-empty line or heading)
+  let detectedTitle = content.split('\n').find(line => line.trim().length > 0) || "AI Generated Content";
+  detectedTitle = detectedTitle.replace(/^#\s*/, ''); // remove markdown-style # if present
+
+  try {
+    const response = await fetch('/api/writer/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: detectedTitle, content, format: 'docx' })
+    });
+
+    if (!response.ok) throw new Error('Download failed');
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+
+    // 🔑 Use detected title in filename
+    a.download = `${detectedTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.docx`;
+
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert('Failed to download file: ' + err.message);
+  }
+}
+
     // Canvas message action functions
     function previewCanvas(canvasId) {
       const canvas = document.getElementById(canvasId);
