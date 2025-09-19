@@ -1,138 +1,309 @@
-// routes/writer.js
-const express = require("express");
+const express = require('express');
+const multer = require('multer');
+const path = require('path');
+const FileProcessingService = require('../services/fileProcessingService');
+const llmService = require('../services/llmService');
+const ContentDatabase = require('../services/contentDatabase');
+const MultiPartGenerator = require('../services/multiPartGenerator');
+const { unifiedAuth } = require('../middleware/unifiedAuth');
+const { asyncErrorHandler } = require('../middleware/errorHandler');
+const { validateWriterInput, handleValidationErrors } = require('../middleware/validation');
+const ImprovedCreditSystem = require('../services/improvedCreditSystem');
+const PlanValidator = require('../services/planValidator');
+const { Document, Packer, Paragraph, HeadingLevel, TextRun } = require('docx');
+
 const router = express.Router();
-const admin = require("firebase-admin");
-const ImprovedCreditSystem = require("../services/improvedCreditSystem");
-const ContentProcessor = require("../services/contentProcessor"); // assuming you have this
-const DraftManager = require("../services/draftManager"); // optional if drafts exist
-
+const fileProcessingService = new FileProcessingService();
+const contentDatabase = new ContentDatabase();
+const multiPartGenerator = new MultiPartGenerator();
 const creditSystem = new ImprovedCreditSystem();
-const contentProcessor = new ContentProcessor();
-const draftManager = new DraftManager();
+const planValidator = new PlanValidator();
 
-/**
- * Middleware-like auth check
- */
-async function requireAuth(req, res, next) {
-  try {
-    const token = req.headers.authorization?.split("Bearer ")[1];
-    if (!token) return res.status(401).json({ error: "Unauthorized" });
-
-    const decoded = await admin.auth().verifyIdToken(token);
-    req.user = decoded;
-    next();
-  } catch (err) {
-    console.error("Auth error:", err.message);
-    res.status(401).json({ error: "Invalid or expired token" });
+// Multer config for uploads
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024, files: 5 },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['.pdf', '.docx', '.txt'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowedTypes.includes(ext)) cb(null, true);
+    else cb(new Error(`Unsupported file type: ${ext}. Allowed: PDF, DOCX, TXT`), false);
   }
-}
+});
 
 /**
- * Create new writing content
+ * Assignment content generator (fallback template if LLM fails)
  */
-router.post("/generate", requireAuth, async (req, res) => {
-  const { topic, instructions = "", wordCount = 500 } = req.body;
-  const userId = req.user.uid;
+const generateAssignmentContent = async (title, description, wordCount, citationStyle, style = 'Academic', tone = 'Formal') => {
+  const styleTemplates = {
+    'Academic': {
+      introduction: 'This scholarly examination explores',
+      transition: 'Furthermore, research indicates that',
+      conclusion: 'In conclusion, the evidence demonstrates'
+    },
+    'Business': {
+      introduction: 'This business analysis examines',
+      transition: 'Market data suggests that',
+      conclusion: 'The strategic implications indicate'
+    },
+    'Creative': {
+      introduction: 'Imagine a world where',
+      transition: 'As we delve deeper into this narrative',
+      conclusion: 'The story ultimately reveals'
+    }
+  };
+  const selectedStyle = styleTemplates[style] || styleTemplates['Academic'];
+
+  const prompt = `Write a ${wordCount}-word ${style.toLowerCase()} ${tone.toLowerCase()} assignment on "${title}". ${description ? `Instructions: ${description}` : ''} Use ${citationStyle} citation style.`;
 
   try {
-    if (!topic || topic.length < 3) {
-      return res.status(400).json({ error: "Topic is too short" });
-    }
-
-    // Deduct credits based on word count
-    const deduction = await creditSystem.deductCreditsAtomic(
-      userId,
-      wordCount,
-      req.user.planType || "freemium",
-      "writing"
-    );
-
-    if (!deduction.success) {
-      return res.status(400).json({ error: "Insufficient credits" });
-    }
-
-    // Generate content
-    const result = await contentProcessor.generateContent(topic, {
-      wordCount,
-      instructions,
-      userId
+    const generatedContent = await llmService.generateContent(prompt, {
+      maxTokens: Math.ceil(wordCount * 1.5),
+      temperature: 0.7,
+      style,
+      tone
     });
+    return generatedContent;
+  } catch (error) {
+    console.error('Error generating assignment, using fallback:', error);
+    return `
+# ${title}
 
-    // Rollback if actual words < charged words
-    const actualWords = result.wordCount || result.content.split(" ").length;
-    if (actualWords < wordCount) {
-      await creditSystem.rollbackTransaction(
-        userId,
-        deduction.transactionId,
-        deduction.creditsDeducted - Math.ceil(actualWords / 3),
-        deduction.wordsAllocated - actualWords
-      );
+## Introduction
+${selectedStyle.introduction} the topic of "${title}" with detailed analysis.
+
+## Main Body
+${selectedStyle.transition} [Content will be generated here]
+
+## Conclusion
+${selectedStyle.conclusion} significant insights.
+
+## References
+(Sample references in ${citationStyle} format)
+    `.trim();
+  }
+};
+
+/**
+ * POST /api/writer/generate
+ */
+router.post('/generate', unifiedAuth, validateWriterInput, handleValidationErrors, asyncErrorHandler(async (req, res) => {
+  try {
+    const { prompt, style = 'Academic', tone = 'Formal', wordCount = 500, qualityTier = 'standard', contentType = 'general', assignmentTitle, citationStyle = 'APA' } = req.body;
+    const userId = req.user.userId;
+
+    if (!prompt?.trim()) return res.status(400).json({ success: false, error: 'Prompt is required' });
+    if (wordCount < 100 || wordCount > 2000) return res.status(400).json({ success: false, error: 'Word count must be between 100 and 2000' });
+    if (contentType === 'assignment' && !assignmentTitle?.trim()) return res.status(400).json({ success: false, error: 'Assignment title required' });
+
+    const planValidation = await planValidator.validateUserPlan(userId, { toolType: 'writing', requestType: 'generation' });
+    if (!planValidation.isValid) return res.status(403).json({ success: false, error: planValidation.error });
+
+    const baseCredits = creditSystem.calculateRequiredCredits(wordCount, 'writing');
+    const creditsNeeded = qualityTier === 'premium' ? baseCredits * 2 : baseCredits;
+
+    let creditResult;
+    try {
+      creditResult = await creditSystem.deductCreditsAtomic(userId, creditsNeeded, planValidation.userPlan.planType, 'writing');
+    } catch (deductionError) {
+      return res.status(400).json({ success: false, error: deductionError.message });
     }
 
-    // Save to drafts/history
-    await draftManager.saveDraft(userId, {
-      topic,
-      content: result.content,
-      wordCount: actualWords,
-      timestamp: new Date(),
-      status: "completed"
-    });
+    const useMultiPart = wordCount > 800 || (planValidation.userPlan.planType !== 'freemium' && wordCount > 500);
+    const enableRefinement = qualityTier === 'premium';
+    let result, contentSource = 'new_generation';
 
-    res.json({
-      success: true,
-      content: result.content,
-      wordCount: actualWords,
-      credits: {
-        deducted: deduction.creditsDeducted,
-        remaining: deduction.newBalance
+    try {
+      if (contentType === 'assignment') {
+        if (qualityTier === 'premium' && (useMultiPart || enableRefinement)) {
+          result = await multiPartGenerator.generateMultiPartContent({
+            userId,
+            prompt: `Assignment Title: ${assignmentTitle}\n\nInstructions: ${prompt}`,
+            requestedWordCount: wordCount,
+            userPlan: planValidation.userPlan.planType,
+            style,
+            tone,
+            subject: assignmentTitle,
+            additionalInstructions: `Generate academic assignment with ${citationStyle} citations`,
+            requiresCitations: true,
+            citationStyle,
+            qualityTier,
+            enableRefinement
+          });
+          contentSource = result.usedSimilarContent ? 'assignment_multipart_optimized' : 'assignment_multipart_new';
+        } else {
+          const assignmentContent = await generateAssignmentContent(assignmentTitle, prompt, wordCount, citationStyle, style, tone);
+          result = { content: assignmentContent, wordCount: assignmentContent.split(/\s+/).length, generationTime: 2000, chunksGenerated: 1, refinementCycles: enableRefinement ? 1 : 0 };
+          contentSource = enableRefinement ? 'assignment_refined' : 'assignment_new';
+        }
+      } else if (useMultiPart) {
+        result = await multiPartGenerator.generateMultiPartContent({
+          userId, prompt, requestedWordCount: wordCount, userPlan: planValidation.userPlan.planType, style, tone, qualityTier, enableRefinement
+        });
+        contentSource = result.usedSimilarContent ? 'multipart_optimized' : 'multipart_new';
+      } else {
+        const similarContent = await contentDatabase.findSimilarContent(prompt, style, tone, wordCount);
+        if (similarContent?.length > 0) {
+          const bestMatch = similarContent[0];
+          const polishingContent = await contentDatabase.getContentForPolishing(bestMatch.contentId, wordCount);
+          if (polishingContent?.sections) {
+            result = await llmService.polishExistingContent(polishingContent.sections, prompt, style, tone, wordCount, qualityTier);
+            contentSource = 'optimized_existing';
+            await contentDatabase.updateAccessStatistics([bestMatch.contentId]);
+          } else {
+            result = await llmService.generateContent(prompt, style, tone, wordCount, qualityTier);
+          }
+        } else {
+          result = await llmService.generateContent(prompt, style, tone, wordCount, qualityTier);
+        }
+        if (result?.content) await contentDatabase.storeContent(userId, prompt, result.content, { style, tone, source: contentSource, wordCount });
       }
-    });
-  } catch (err) {
-    console.error("Writer error:", err.message);
-    res.status(500).json({ error: "Failed to generate content", details: err.message });
+
+      res.json({
+        success: true,
+        content: result.content,
+        metadata: { contentSource, wordCount: result.wordCount || wordCount, creditsUsed: creditsNeeded, remainingCredits: creditResult.newBalance, qualityTier, enabledRefinement, contentType, assignmentTitle, citationStyle }
+      });
+    } catch (genError) {
+      await creditSystem.refundCredits(userId, creditsNeeded, creditResult.transactionId || 'failed_generation');
+      return res.status(500).json({ success: false, error: 'Content generation failed', details: genError.message });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Internal server error', details: error.message });
   }
-});
+}));
 
 /**
- * Get writing history
+ * POST /api/writer/upload-and-generate
+ * (same credit system integration as /generate)
  */
-router.get("/history", requireAuth, async (req, res) => {
+router.post('/upload-and-generate', unifiedAuth, upload.array('files', 10), validateWriterInput, handleValidationErrors, asyncErrorHandler(async (req, res) => {
   try {
-    const snapshot = await admin
-      .firestore()
-      .collection("writing_history")
-      .where("userId", "==", req.user.uid)
-      .orderBy("timestamp", "desc")
-      .limit(10)
-      .get();
+    const { additionalPrompt = '', style = 'Academic', tone = 'Formal', wordCount = 500, qualityTier = 'standard' } = req.body;
+    const files = req.files;
+    const userId = req.user.userId;
 
-    const history = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    res.json({ history });
-  } catch (err) {
-    console.error("History fetch error:", err.message);
-    res.status(500).json({ error: "Failed to fetch history", details: err.message });
-  }
-});
+    if (!files?.length) return res.status(400).json({ success: false, error: 'No files uploaded' });
+    if (wordCount < 100 || wordCount > 2000) return res.status(400).json({ success: false, error: 'Word count must be between 100 and 2000' });
 
-/**
- * Get single draft
- */
-router.get("/draft/:id", requireAuth, async (req, res) => {
-  try {
-    const docSnap = await admin
-      .firestore()
-      .collection("writing_history")
-      .doc(req.params.id)
-      .get();
+    const planValidation = await planValidator.validateUserPlan(userId, { toolType: 'writing', requestType: 'generation' });
+    if (!planValidation.isValid) return res.status(403).json({ success: false, error: planValidation.error });
 
-    if (!docSnap.exists) {
-      return res.status(404).json({ error: "Draft not found" });
+    const baseCredits = creditSystem.calculateRequiredCredits(wordCount, 'writing');
+    const creditsNeeded = qualityTier === 'premium' ? baseCredits * 2 : baseCredits;
+
+    let creditResult;
+    try {
+      creditResult = await creditSystem.deductCreditsAtomic(userId, creditsNeeded, planValidation.userPlan.planType, 'writing');
+    } catch (deductionError) {
+      return res.status(400).json({ success: false, error: deductionError.message });
     }
 
-    res.json({ draft: { id: docSnap.id, ...docSnap.data() } });
-  } catch (err) {
-    res.status(500).json({ error: "Failed to fetch draft", details: err.message });
+    try {
+      const result = await fileProcessingService.processFilesAndGenerate(files, additionalPrompt, style, tone);
+      if (!result.success) {
+        await creditSystem.refundCredits(userId, creditsNeeded, creditResult.transactionId || 'failed_file_processing');
+        return res.status(400).json(result);
+      }
+
+      let llmResult, contentSource = 'new_generation';
+      const useMultiPart = wordCount > 800 || (planValidation.userPlan.planType !== 'freemium' && wordCount > 500);
+      const enableRefinement = qualityTier === 'premium';
+
+      if (useMultiPart) {
+        llmResult = await multiPartGenerator.generateMultiPartContent({ userId, prompt: result.prompt, requestedWordCount: wordCount, userPlan: planValidation.userPlan.planType, style, tone, qualityTier, enableRefinement });
+        contentSource = llmResult.usedSimilarContent ? 'multipart_optimized_files' : 'multipart_new_files';
+      } else {
+        const similarContent = await contentDatabase.findSimilarContent(result.prompt, style, tone, wordCount);
+        if (similarContent?.length > 0) {
+          const bestMatch = similarContent[0];
+          const polishingContent = await contentDatabase.getContentForPolishing(bestMatch.contentId, wordCount);
+          if (polishingContent?.sections) {
+            llmResult = await llmService.polishExistingContent(polishingContent.sections, result.prompt, style, tone, wordCount, qualityTier);
+            contentSource = 'optimized_existing';
+            await contentDatabase.updateAccessStatistics([bestMatch.contentId]);
+          } else {
+            llmResult = await llmService.generateContent(result.prompt, style, tone, wordCount, qualityTier);
+          }
+        } else {
+          llmResult = await llmService.generateContent(result.prompt, style, tone, wordCount, qualityTier);
+        }
+        if (llmResult?.content) await contentDatabase.storeContent(userId, result.prompt, llmResult.content, { style, tone, source: contentSource, wordCount, basedOnFiles: true, fileCount: files.length });
+      }
+
+      res.json({
+        success: true,
+        content: llmResult.content,
+        extractedContent: result.extractedContent,
+        generatedPrompt: result.prompt,
+        metadata: { contentSource, creditsUsed: creditsNeeded, remainingCredits: creditResult.newBalance, qualityTier, basedOnFiles: true, fileCount: files.length }
+      });
+    } catch (genError) {
+      await creditSystem.refundCredits(userId, creditsNeeded, creditResult.transactionId || 'failed_generation');
+      return res.status(500).json({ success: false, error: 'Content generation failed', details: genError.message });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Internal server error', details: error.message });
   }
+}));
+
+/**
+ * GET /api/writer/supported-formats
+ */
+router.get('/supported-formats', (req, res) => {
+  res.json({
+    success: true,
+    formats: [
+      { extension: '.pdf', description: 'Portable Document Format', maxSize: '10MB' },
+      { extension: '.docx', description: 'Microsoft Word Document', maxSize: '10MB' },
+      { extension: '.txt', description: 'Plain Text File', maxSize: '10MB' }
+    ],
+    limits: { maxFiles: 5, maxFileSize: '10MB', totalMaxSize: '50MB' }
+  });
+});
+
+/**
+ * POST /api/writer/validate-files
+ */
+router.post('/validate-files', unifiedAuth, upload.array('files', 5), asyncErrorHandler(async (req, res) => {
+  const files = req.files;
+  if (!files?.length) return res.status(400).json({ success: false, error: 'No files provided' });
+  const validation = fileProcessingService.validateFiles(files);
+  res.json({ success: validation.valid, valid: validation.valid, errors: validation.errors || [], fileInfo: files.map(file => ({ name: file.originalname, size: file.size, type: path.extname(file.originalname).toLowerCase(), sizeFormatted: `${(file.size / 1024 / 1024).toFixed(2)} MB` })) });
+}));
+
+/**
+ * POST /api/writer/download
+ * Proper DOCX download
+ */
+router.post('/download', asyncErrorHandler(async (req, res) => {
+  const { title, content } = req.body;
+  if (!title || !content) return res.status(400).json({ success: false, error: 'Title and content are required' });
+
+  const doc = new Document({
+    sections: [{
+      properties: {},
+      children: [
+        new Paragraph({ text: title, heading: HeadingLevel.HEADING1 }),
+        ...content.split('\n').map(line => new Paragraph({ children: [new TextRun(line)] }))
+      ]
+    }]
+  });
+
+  const buffer = await Packer.toBuffer(doc);
+  const filename = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.docx`;
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(buffer);
+}));
+
+/**
+ * GET /api/writer/health
+ */
+router.get('/health', async (req, res) => {
+  const status = await creditSystem.healthCheck();
+  res.json(status);
 });
 
 module.exports = router;
