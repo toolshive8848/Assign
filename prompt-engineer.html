@@ -5,21 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Prompt Engineer - AssignSavvy</title>
   <link rel="icon" type="image/svg+xml" href="./assets/favicon.svg">
-  <link rel="stylesheet" href="./styles/main.css">
   <script src="js/userSession.js"></script>
   <script src="js/authCheck.js"></script>
 </head>
 <body>
   <div class="dashboard-layout">
+    <!-- ========================= -->
     <!-- Top Bar -->
+    <!-- ========================= -->
     <div class="dashboard-topbar">
       <div class="topbar-left">
         <button class="sidebar-toggle" id="sidebar-toggle">
           <i class="fas fa-bars"></i>
         </button>
-        <div class="topbar-logo">
-          AssignSavvy
-        </div>
+        <div class="topbar-logo">AssignSavvy</div>
       </div>
       <div class="topbar-title">Prompt Engineer</div>
       <div class="topbar-actions">
@@ -33,10 +32,11 @@
         </a>
       </div>
     </div>
-    
+
+    <!-- ========================= -->
     <!-- Sidebar -->
+    <!-- ========================= -->
     <div class="dashboard-sidebar" id="dashboard-sidebar">
-      <!-- Navigation -->
       <ul class="sidebar-nav">
         <li>
           <a href="dashboard.html" class="sidebar-nav-item">
@@ -75,8 +75,8 @@
           </a>
         </li>
       </ul>
-      
-      <!-- User Account Info - Bottom Corner -->
+
+      <!-- User Info -->
       <div class="user-account-info">
         <div class="user-profile-card" id="user-profile-card" style="cursor: pointer;">
           <div class="user-avatar">
@@ -93,22 +93,23 @@
         </div>
       </div>
     </div>
-    
+
+    <!-- ========================= -->
     <!-- Main Content -->
+    <!-- ========================= -->
     <div class="dashboard-content">
-      <!-- Header -->
       <div class="section-header">
         <h2>Prompt Engineer</h2>
         <button class="btn btn-outline" id="open-history-btn">
           <i class="fas fa-history"></i> History
         </button>
       </div>
-      
+
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <!-- Prompt Input Section -->
+        <!-- Prompt Input -->
         <div class="card">
           <h3 class="mb-4">Prompt Input</h3>
-          
+
           <!-- Category Buttons -->
           <div class="flex flex-wrap gap-2 mb-4">
             <button class="btn btn-outline btn-sm active">General</button>
@@ -117,15 +118,15 @@
             <button class="btn btn-outline btn-sm">Technical</button>
             <button class="btn btn-outline btn-sm">Business</button>
           </div>
-          
-          <!-- Original Prompt Input -->
+
+          <!-- Textarea -->
           <div class="form-group mb-4">
             <label for="original-prompt">Original Prompt</label>
             <textarea id="original-prompt" class="form-input" rows="10" placeholder="Enter your prompt here..."></textarea>
             <div class="text-right text-sm text-gray mt-1">0/15000 characters</div>
           </div>
-          
-          <!-- Quick Templates -->
+
+          <!-- Templates -->
           <div class="mb-4">
             <h4 class="mb-2">Quick Templates</h4>
             <div class="flex flex-wrap gap-2">
@@ -135,147 +136,90 @@
               <button class="btn btn-outline btn-sm">Creative Story</button>
             </div>
           </div>
-          
+
+          <!-- Buttons -->
           <div class="flex gap-2">
-            <button class="btn btn-outline flex-1" onclick="analyzePromptWithCredits(document.getElementById('original-prompt').value.trim())">
+            <button class="btn btn-outline flex-1" id="analyze-btn">
               <i class="fas fa-chart-line"></i> Analyze (Credits)
             </button>
-            <button class="btn btn-primary flex-1">
+            <button class="btn btn-primary flex-1" id="optimize-btn">
               <i class="fas fa-wand-magic-sparkles"></i> Optimize Prompt
             </button>
           </div>
         </div>
-        
-        <!-- Optimization Info Section -->
+
+        <!-- Output + Metrics -->
         <div>
           <!-- Optimized Prompt -->
           <div class="card mb-6">
             <div class="flex justify-between items-center mb-4">
               <h3>Optimized Prompt</h3>
               <div class="flex gap-2">
-                <button class="btn btn-icon">
+                <button class="btn btn-icon" id="copy-btn">
                   <i class="fas fa-copy"></i>
                 </button>
-                <button class="btn btn-icon">
+                <button class="btn btn-icon" id="download-btn">
                   <i class="fas fa-download"></i>
                 </button>
               </div>
             </div>
-            <textarea class="form-input" rows="8" readonly id="optimized-prompt" placeholder="Your optimized prompt will appear here after optimization..."></textarea>
+            <textarea class="form-input" rows="8" readonly id="optimized-prompt" placeholder="Your optimized prompt will appear here..."></textarea>
           </div>
-          
-          <!-- Optimization Tips -->
-          <div class="card mb-6">
-            <h3 class="mb-4">Optimization Tips</h3>
-            <ul class="list-disc pl-5 space-y-2">
-              <li>Be specific about your desired output format</li>
-              <li>Provide context and background information</li>
-              <li>Break complex tasks into step-by-step instructions</li>
-              <li>Specify tone, style, and audience when relevant</li>
-              <li>Include examples of what you're looking for</li>
-            </ul>
-          </div>
-          
 
-          
           <!-- Quality Metrics -->
           <div class="card mb-6" id="quality-metrics">
             <h3 class="mb-4">Quality Metrics</h3>
-            
-            <!-- Clarity Metric -->
             <div class="mb-4">
               <div class="flex justify-between mb-1">
-                <span>Clarity</span>
-                <span id="clarity-score">--</span>
+                <span>Clarity</span><span id="clarity-score">--</span>
               </div>
               <div class="progress-bar">
-                <div class="progress-fill" id="clarity-progress" style="width: 0%;"></div>
+                <div class="progress-fill" id="clarity-progress"></div>
               </div>
             </div>
-            
-            <!-- Specificity Metric -->
             <div class="mb-4">
               <div class="flex justify-between mb-1">
-                <span>Specificity</span>
-                <span id="specificity-score">--</span>
+                <span>Specificity</span><span id="specificity-score">--</span>
               </div>
               <div class="progress-bar">
-                <div class="progress-fill" id="specificity-progress" style="width: 0%;"></div>
+                <div class="progress-fill" id="specificity-progress"></div>
               </div>
             </div>
-            
-            <!-- Context Metric -->
             <div class="mb-4">
               <div class="flex justify-between mb-1">
-                <span>Context</span>
-                <span id="context-score">--</span>
+                <span>Context</span><span id="context-score">--</span>
               </div>
               <div class="progress-bar">
-                <div class="progress-fill" id="context-progress" style="width: 0%;"></div>
+                <div class="progress-fill" id="context-progress"></div>
               </div>
             </div>
-            
-            <!-- Overall Score -->
             <div>
               <div class="flex justify-between mb-1">
-                <span>Overall Score</span>
-                <span id="overall-score">--</span>
+                <span>Overall</span><span id="overall-score">--</span>
               </div>
               <div class="progress-bar">
-                <div class="progress-fill bg-primary" id="overall-progress" style="width: 0%;"></div>
+                <div class="progress-fill bg-primary" id="overall-progress"></div>
               </div>
             </div>
           </div>
-          
+
           <!-- Recent Optimizations -->
           <div class="card mb-6">
             <h3 class="mb-4">Recent Optimizations</h3>
             <div class="space-y-4" id="recent-optimizations">
               <div class="optimization-example">
-                <p class="text-sm text-gray">Your recent optimizations will appear here after you start using the tool.</p>
-              </div>
-            </div>
-          </div>
-          
-        </div>
-      </div>
-    </div>
-  </div>
-  
-  <!-- User Profile Modal -->
-  <div id="user-profile-modal" class="modal" style="display: none;">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3>User Profile</h3>
-        <button id="close-profile-modal" class="btn-close">&times;</button>
-      </div>
-      <div class="modal-body">
-        <div class="profile-section">
-          <div class="profile-avatar">
-            <i class="fas fa-user-circle text-6xl text-primary"></i>
-          </div>
-          <div class="profile-info">
-            <h4 id="modal-user-name">User Name</h4>
-            <p class="text-gray" id="modal-user-email">john.doe@example.com</p>
-            <div class="plan-info">
-              <span class="plan-badge" id="modal-user-plan">Free Plan</span>
-              <div class="credits-info">
-                <i class="fas fa-coins text-orange"></i>
-                <span id="modal-user-credits">145/200 Credits</span>
+                <p class="text-sm text-gray">Your recent optimizations will appear here...</p>
               </div>
             </div>
           </div>
         </div>
-        <div class="profile-actions">
-          <button class="btn btn-outline" onclick="window.location.href='auth.html'">Account Settings</button>
-          <button class="btn btn-primary" onclick="window.location.href='pricing.html'">Upgrade Plan</button>
-          <button class="btn btn-outline" onclick="logout()">Logout</button>
-        </div>
       </div>
     </div>
   </div>
-  
+
+  <!-- ========================= -->
   <!-- History Modal -->
+  <!-- ========================= -->
   <div id="history-modal" class="modal" style="display: none;">
     <div class="modal-content">
       <div class="modal-header">
@@ -283,33 +227,15 @@
         <button id="close-modal-btn" class="btn-close">&times;</button>
       </div>
       <div class="modal-body">
-        <ul class="project-list">
-          <li class="project-item">
-            <div>
-              <h4>Research Paper Outline</h4>
-              <p class="text-sm text-gray">May 15, 2025 • Academic</p>
-            </div>
-            <button class="btn btn-outline">Open</button>
-          </li>
-          <li class="project-item">
-            <div>
-              <h4>Code Documentation</h4>
-              <p class="text-sm text-gray">May 14, 2025 • Technical</p>
-            </div>
-            <button class="btn btn-outline">Open</button>
-          </li>
-          <li class="project-item">
-            <div>
-              <h4>Marketing Email Sequence</h4>
-              <p class="text-sm text-gray">May 12, 2025 • Business</p>
-            </div>
-            <button class="btn btn-outline">Open</button>
-          </li>
-        </ul>
+        <ul class="project-list"></ul>
       </div>
     </div>
   </div>
-  
+
+  <!-- ========================= -->
+  <!-- Inline CSS -->
+  <!-- ========================= -->
+ 
   <style>
     /* Modern CSS Variables */
     :root {
@@ -947,601 +873,10 @@
       }
     }
   </style>
-  
-  <!-- User Session Manager -->
-  <script src="js/userSession.js"></script>
-  
-  <script>
-    // Load user profile data
-    function loadUserProfile() {
-      // Now handled by UserSessionManager
-      window.userSession.updateAllDisplays();
-    }
 
-    // Get current user data
-    function getCurrentUser() {
-      return window.userSession.getCurrentUser();
-    }
-
-    function logout() {
-      window.userSession.logout();
-    }
-
-    document.addEventListener('DOMContentLoaded', function() {
-      // Load user profile data
-      loadUserProfile();
-      
-      // User profile modal functionality
-      const userProfileCard = document.getElementById('user-profile-card');
-      const userProfileModal = document.getElementById('user-profile-modal');
-      const closeProfileModal = document.getElementById('close-profile-modal');
-      
-      userProfileCard.addEventListener('click', function() {
-        userProfileModal.style.display = 'flex';
-      });
-      
-      closeProfileModal.addEventListener('click', function() {
-        userProfileModal.style.display = 'none';
-      });
-      
-      window.addEventListener('click', function(event) {
-        if (event.target === userProfileModal) {
-          userProfileModal.style.display = 'none';
-        }
-      });
-      
-      // Global variables
-      let userCredits = currentUser.credits;
-      let selectedCategory = 'general';
-      let dailyUsage = { inputWords: 0, outputWords: 0 };
-      let userPlan = currentUser.plan;
-      let dailyLimits = { inputWords: 1000, outputWords: 500 };
-      
-      // Firebase configuration (replace with your config)
-      const firebaseConfig = {
-          // Add your Firebase config here
-      };
-      
-      // Initialize Firebase (uncomment when config is added)
-      // firebase.initializeApp(firebaseConfig);
-      // const auth = firebase.auth();
-      
-      // Character and word counter for prompt textarea
-      const originalPrompt = document.getElementById('original-prompt');
-      const charCounter = originalPrompt.nextElementSibling;
-      
-      originalPrompt.addEventListener('input', function() {
-        const currentLength = this.value.length;
-        const wordCount = this.value.trim().split(/\s+/).filter(word => word.length > 0).length;
-        charCounter.textContent = `${wordCount} words | ${currentLength} characters`;
-        
-        // Validate word count limits
-        validateWordCount(wordCount);
-        
-        // Update credit cost preview
-        updateCreditCostPreview();
-        
-        // Auto-analyze on input (debounced)
-        clearTimeout(this.analyzeTimeout);
-        this.analyzeTimeout = setTimeout(() => {
-          if (this.value.trim().length > 10) {
-            analyzeFreePrompt(this.value);
-          }
-        }, 1000);
-      });
-      
-      // Load initial data
-      updateCreditsDisplay();
-      
-      // Modal functionality
-      const historyModal = document.getElementById('history-modal');
-      const closeModalBtn = document.getElementById('close-modal-btn');
-      
-      // Only add event listener if the button exists
-      const openHistoryBtn = document.getElementById('open-history-btn');
-      if (openHistoryBtn) {
-        openHistoryBtn.addEventListener('click', function() {
-          loadPromptHistory();
-          historyModal.style.display = 'flex';
-        });
-      }
-      
-      closeModalBtn.addEventListener('click', function() {
-        historyModal.style.display = 'none';
-      });
-      
-      window.addEventListener('click', function(event) {
-        if (event.target === historyModal) {
-          historyModal.style.display = 'none';
-        }
-      });
-      
-      // Category button selection
-      const categoryButtons = document.querySelectorAll('.btn-sm');
-      categoryButtons.forEach(button => {
-        button.addEventListener('click', function() {
-          categoryButtons.forEach(btn => btn.classList.remove('active'));
-          this.classList.add('active');
-          selectedCategory = this.textContent.toLowerCase();
-        });
-      });
-      
-      // Template button functionality
-      const templateButtons = document.querySelectorAll('.btn-outline.btn-sm');
-      templateButtons.forEach(button => {
-        if (button.textContent.includes('Essay') || button.textContent.includes('Research') || 
-            button.textContent.includes('Code') || button.textContent.includes('Creative')) {
-          button.addEventListener('click', function() {
-            const template = getTemplate(this.textContent);
-            if (template && originalPrompt) {
-              originalPrompt.value = template;
-              originalPrompt.dispatchEvent(new Event('input'));
-            }
-          });
-        }
-      });
-      
-      // Optimize button functionality
-      const optimizeBtn = document.querySelector('.btn-primary');
-      if (optimizeBtn) {
-        optimizeBtn.addEventListener('click', optimizePrompt);
-      }
-      
-      // Load initial data
-      updateCreditsDisplay();
-    });
-    
-    // API Helper functions
-    async function makeAuthenticatedRequest(url, options = {}) {
-      const token = await getCurrentUserToken();
-      return fetch(url, {
-        ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          ...options.headers
-        }
-      });
-    }
-    
-    async function getCurrentUserToken() {
-      // Get token from localStorage (set during login)
-      const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('User not authenticated');
-      }
-      return token;
-    }
-    
-    // Free prompt analysis (no authentication required)
-    async function analyzeFreePrompt(prompt) {
-      try {
-        const response = await fetch('/api/prompt/analyze-free', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ prompt })
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-          updateQualityMetrics(data.analysis);
-        } else {
-          console.error('Analysis failed:', data.error);
-        }
-      } catch (error) {
-        console.error('Error analyzing prompt:', error);
-      }
-    }
-    
-    // Analyze prompt with authentication and credit deduction
-    async function analyzePromptWithCredits(prompt) {
-      try {
-        const response = await makeAuthenticatedRequest('/api/prompt/analyze', {
-          method: 'POST',
-          body: JSON.stringify({ prompt })
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-          updateQualityMetrics(data.analysis);
-          // Update credits display after successful analysis
-          updateCreditsDisplay();
-        } else {
-          if (data.limitExceeded) {
-            showUpgradeModal(data.error || 'Daily word limit exceeded. Please upgrade to continue.');
-          } else if (data.insufficientCredits) {
-            alert('Insufficient credits: ' + data.error);
-          } else {
-            console.error('Analysis failed:', data.error);
-          }
-        }
-      } catch (error) {
-        console.error('Error analyzing prompt:', error);
-      }
-    }
-    
-    // Optimize prompt with authentication
-    async function optimizePrompt() {
-      const promptTextarea = document.getElementById('original-prompt');
-      const prompt = promptTextarea?.value?.trim();
-      if (!prompt) {
-        alert('Please enter a prompt to optimize');
-        return;
-      }
-      
-      try {
-        showLoading('Optimizing your prompt...');
-        
-        const response = await makeAuthenticatedRequest('/api/prompt/optimize', {
-          method: 'POST',
-          body: JSON.stringify({ 
-            prompt, 
-            category: selectedCategory 
-          })
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-          displayOptimizedPrompt(data);
-          
-          // Credits are automatically deducted by the backend
-          
-          updateCreditsDisplay();
-        } else {
-          if (data.limitExceeded) {
-            showUpgradeModal(data.error || 'Daily word limit exceeded. Please upgrade to continue.');
-          } else if (data.insufficientCredits) {
-            alert('Insufficient credits: ' + data.error);
-          } else if (data.requiresUpgrade) {
-            showUpgradeModal(data.error);
-          } else {
-            alert('Optimization failed: ' + data.error);
-          }
-        }
-      } catch (error) {
-        console.error('Error optimizing prompt:', error);
-        alert('Failed to optimize prompt. Please try again.');
-      } finally {
-        hideLoading();
-      }
-    }
-    
-    // Load prompt history
-    async function loadPromptHistory() {
-      try {
-        const response = await makeAuthenticatedRequest('/api/prompt/history');
-        const data = await response.json();
-        
-        if (data.success) {
-          displayPromptHistory(data.history);
-        } else {
-          console.error('Failed to load history:', data.error);
-        }
-      } catch (error) {
-        console.error('Error loading history:', error);
-      }
-    }
-    
-    // Update quality metrics display
-    function updateQualityMetrics(analysis) {
-      // Update clarity metric
-      const clarityScore = analysis.clarity?.score || 0;
-      document.getElementById('clarity-score').textContent = `${clarityScore}%`;
-      const clarityProgress = document.getElementById('clarity-progress');
-      clarityProgress.style.width = `${clarityScore}%`;
-      clarityProgress.style.backgroundColor = getScoreColor(clarityScore);
-      
-      // Update specificity metric
-      const specificityScore = analysis.specificity?.score || 0;
-      document.getElementById('specificity-score').textContent = `${specificityScore}%`;
-      const specificityProgress = document.getElementById('specificity-progress');
-      specificityProgress.style.width = `${specificityScore}%`;
-      specificityProgress.style.backgroundColor = getScoreColor(specificityScore);
-      
-      // Update context metric
-      const contextScore = analysis.context?.score || 0;
-      document.getElementById('context-score').textContent = `${contextScore}%`;
-      const contextProgress = document.getElementById('context-progress');
-      contextProgress.style.width = `${contextScore}%`;
-      contextProgress.style.backgroundColor = getScoreColor(contextScore);
-      
-      // Update overall score
-      const overallScore = analysis.overall?.score || 0;
-      document.getElementById('overall-score').textContent = `${overallScore}%`;
-      const overallProgress = document.getElementById('overall-progress');
-      overallProgress.style.width = `${overallScore}%`;
-      overallProgress.style.backgroundColor = getScoreColor(overallScore);
-    }
-    
-    function getScoreColor(score) {
-      if (score >= 80) {
-        return '#27ae60'; // Green
-      } else if (score >= 60) {
-        return '#f39c12'; // Orange
-      } else {
-        return '#e74c3c'; // Red
-      }
-    }
-    
-    // Display optimized prompt
-    function displayOptimizedPrompt(data) {
-      const outputArea = document.getElementById('optimized-prompt');
-      if (outputArea) {
-        outputArea.value = data.optimizedPrompt;
-      }
-      
-      // Show improvements in a modal or alert for now
-      if (data.improvements && data.improvements.length > 0) {
-        const improvementsText = data.improvements.join('\n• ');
-        alert(`Optimization complete!\n\nImprovements made:\n• ${improvementsText}`);
-      }
-    }
-    
-    // Display prompt history
-    function displayPromptHistory(history) {
-      const historyList = document.querySelector('.project-list');
-      if (historyList && history) {
-        let content = '';
-        
-        if (history.optimizations && history.optimizations.length > 0) {
-          history.optimizations.forEach(opt => {
-            content += `
-              <li class="project-item">
-                <div>
-                  <h4>${opt.category || 'General'} Optimization</h4>
-                  <p class="text-sm text-gray">${new Date(opt.timestamp?.toDate()).toLocaleDateString()} • ${opt.category || 'General'}</p>
-                </div>
-                <button class="btn btn-outline" onclick="loadHistoryItem('${opt.id}')">Open</button>
-              </li>
-            `;
-          });
-        } else {
-          content = '<li class="project-item"><div><p>No optimization history found.</p></div></li>';
-        }
-        
-        historyList.innerHTML = content;
-      }
-    }
-    
-    // Get template based on button text
-    function getTemplate(buttonText) {
-      const templates = {
-        'Essay Structure': 'Write a well-structured essay about [TOPIC]. Include an introduction with a clear thesis statement, three body paragraphs with supporting evidence, and a conclusion that summarizes the main points. Each paragraph should be approximately 150-200 words.',
-        'Research Question': 'Conduct research on [TOPIC] and provide a comprehensive analysis. Include current statistics, expert opinions, recent developments, and cite at least 5 credible sources. Structure the response with clear headings and bullet points for key findings.',
-        'Code Explanation': 'Explain the following code in detail: [CODE]. Break down each function, variable, and logic step. Provide comments for each major section and suggest any potential improvements or optimizations.',
-        'Creative Story': 'Write a creative story about [THEME/CHARACTER]. The story should be approximately 500 words, include dialogue, descriptive language, and have a clear beginning, middle, and end. Focus on character development and engaging plot progression.'
-      };
-      
-      return templates[buttonText] || '';
-    }
-    
-    // Utility functions
-    function copyToClipboard(text) {
-      navigator.clipboard.writeText(text).then(() => {
-        alert('Copied to clipboard!');
-      }).catch(err => {
-        console.error('Failed to copy:', err);
-      });
-    }
-    
-    function showLoading(message) {
-      const loadingDiv = document.createElement('div');
-      loadingDiv.id = 'loading-indicator';
-      loadingDiv.innerHTML = `
-        <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 9999;">
-          <div style="background: white; padding: 20px; border-radius: 8px; text-align: center;">
-            <div style="margin-bottom: 10px;">⏳</div>
-            <div>${message}</div>
-          </div>
-        </div>
-      `;
-      document.body.appendChild(loadingDiv);
-    }
-    
-    function hideLoading() {
-      const loadingDiv = document.getElementById('loading-indicator');
-      if (loadingDiv) {
-        document.body.removeChild(loadingDiv);
-      }
-    }
-    
-    function showUpgradeModal(message) {
-      alert(`${message}\n\nPlease upgrade your plan to continue using this feature.`);
-    }
-    
-    // Credit-based system - no daily usage tracking needed
-    
-    // Credit-based system - no usage display needed
-    
-    // Validate word count against limits
-    function validateWordCount(wordCount) {
-      const maxInputWords = 1000; // One-time limit for all users
-      
-      const optimizeBtn = document.querySelector('.btn-primary');
-      const warningDiv = document.getElementById('word-count-warning');
-      
-      // Remove existing warning
-      if (warningDiv) {
-        warningDiv.remove();
-      }
-      
-      if (wordCount > maxInputWords) {
-        // Exceeds maximum word limit
-        const warning = document.createElement('div');
-        warning.id = 'word-count-warning';
-        warning.className = 'alert alert-error mt-2';
-        warning.innerHTML = `⚠️ Input exceeds ${maxInputWords} word limit. Please reduce your input.`;
-        originalPrompt.parentNode.appendChild(warning);
-        
-        if (optimizeBtn) optimizeBtn.disabled = true;
-      } else {
-        // Calculate and show credits needed
-        const inputCredits = Math.ceil(wordCount / 20);
-        const estimatedOutputWords = Math.min(wordCount * 1.5, 1000);
-        const outputCredits = Math.ceil(estimatedOutputWords / 10);
-        const totalCredits = inputCredits + outputCredits;
-        
-        if (totalCredits > 0) {
-          const warning = document.createElement('div');
-          warning.id = 'word-count-warning';
-          warning.className = 'alert alert-info mt-2';
-          warning.innerHTML = `ℹ️ This will use approximately ${totalCredits} credits (${inputCredits} for input + ${outputCredits} for output).`;
-          originalPrompt.parentNode.appendChild(warning);
-        }
-        
-        if (optimizeBtn) optimizeBtn.disabled = false;
-      }
-    }
-    
-    // Show upgrade modal with detailed information
-    function showUpgradeModal(message) {
-      const modal = document.createElement('div');
-      modal.className = 'modal';
-      modal.innerHTML = `
-        <div class="modal-content">
-          <div class="modal-header">
-            <h3>Upgrade Required</h3>
-            <button class="btn-close" onclick="this.closest('.modal').remove()">&times;</button>
-          </div>
-          <div class="modal-body">
-            <p class="mb-4">${message}</p>
-            <div class="grid grid-cols-2 gap-4 mb-4">
-              <div class="card">
-                <h4 class="font-semibold mb-2">Free Plan</h4>
-                <ul class="text-sm text-gray space-y-1">
-                  <li>• 1,000 input words/day</li>
-                  <li>• 500 output words/day</li>
-                  <li>• Basic prompt analysis</li>
-                </ul>
-              </div>
-              <div class="card">
-                <h4 class="font-semibold mb-2">Paid Plan</h4>
-                <ul class="text-sm text-gray space-y-1">
-                  <li>• 10,000 input words/day</li>
-                  <li>• 5,000 output words/day</li>
-                  <li>• Unlimited with credits</li>
-                  <li>• Advanced features</li>
-                </ul>
-              </div>
-            </div>
-            <div class="flex gap-2">
-              <button class="btn btn-primary" onclick="window.open('/upgrade', '_blank')">Upgrade Now</button>
-              <button class="btn btn-outline" onclick="this.closest('.modal').remove()">Maybe Later</button>
-            </div>
-          </div>
-        </div>
-      `;
-      document.body.appendChild(modal);
-    }
-
-    async function updateCreditsDisplay() {
-      try {
-        const response = await makeAuthenticatedRequest('/api/prompt/credits');
-        const data = await response.json();
-        
-        if (data.success) {
-          const creditsElement = document.querySelector('.user-credits span');
-          if (creditsElement) {
-            const remaining = data.total - data.used;
-            creditsElement.textContent = `${remaining}/${data.total} Credits`;
-            
-            // Add visual indicator for low credits
-            if (remaining < 10) {
-              creditsElement.style.color = '#e74c3c'; // Red for low credits
-            } else if (remaining < 50) {
-              creditsElement.style.color = '#f39c12'; // Orange for medium credits
-            } else {
-              creditsElement.style.color = '#27ae60'; // Green for good credits
-            }
-          }
-          
-          // Update modal credits display if it exists
-          const modalCreditsElement = document.getElementById('modal-user-credits');
-          if (modalCreditsElement) {
-            modalCreditsElement.textContent = `${data.total - data.used}/${data.total} Credits`;
-          }
-        }
-      } catch (error) {
-        console.error('Error updating credits:', error);
-      }
-    }
-    
-    // Calculate and display estimated credit cost
-    function updateCreditCostPreview() {
-      const promptTextarea = document.getElementById('original-prompt');
-      const prompt = promptTextarea?.value?.trim();
-      
-      if (prompt) {
-        const wordCount = prompt.split(/\s+/).filter(word => word.length > 0).length;
-        const inputCredits = Math.ceil(wordCount / 20); // 1 credit = 20 words for input
-        const estimatedOutputCredits = Math.ceil((wordCount * 1.5) / 10); // Estimated output credits
-        const totalCredits = inputCredits + estimatedOutputCredits;
-        
-        // Update cost preview in UI
-        let costPreview = document.getElementById('credit-cost-preview');
-        if (!costPreview) {
-          costPreview = document.createElement('div');
-          costPreview.id = 'credit-cost-preview';
-          costPreview.className = 'text-sm text-gray mt-2';
-          promptTextarea.parentNode.appendChild(costPreview);
-        }
-        
-        costPreview.innerHTML = `<i class="fas fa-coins"></i> Estimated cost: ${totalCredits} credits (${wordCount} words)`;
-      }
-    }
-    
-    function loadHistoryItem(itemId) {
-      // Load specific history item - placeholder for now
-      alert('Loading history item: ' + itemId);
-    }
-  </script>
-  
-  <script>
-    // Sidebar toggle functionality
-    document.addEventListener('DOMContentLoaded', function() {
-      const sidebarToggle = document.getElementById('sidebar-toggle');
-      const sidebar = document.getElementById('dashboard-sidebar');
-      const dashboardLayout = document.querySelector('.dashboard-layout');
-      
-      // Toggle sidebar on button click
-      sidebarToggle.addEventListener('click', function() {
-        if (window.innerWidth <= 768) {
-          // Mobile behavior
-          sidebar.classList.toggle('sidebar-open');
-          dashboardLayout.classList.toggle('sidebar-active');
-        } else {
-          // Desktop behavior
-          dashboardLayout.classList.toggle('sidebar-collapsed');
-        }
-      });
-      
-      // Close sidebar when clicking outside on mobile
-      document.addEventListener('click', function(event) {
-        if (window.innerWidth <= 768) {
-          if (!sidebar.contains(event.target) && !sidebarToggle.contains(event.target) && sidebar.classList.contains('sidebar-open')) {
-            sidebar.classList.remove('sidebar-open');
-            dashboardLayout.classList.remove('sidebar-active');
-          }
-        }
-      });
-      
-      // Handle window resize
-      window.addEventListener('resize', function() {
-        if (window.innerWidth > 768) {
-          sidebar.classList.remove('sidebar-open');
-          dashboardLayout.classList.remove('sidebar-active');
-        } else {
-          dashboardLayout.classList.remove('sidebar-collapsed');
-        }
-      });
-    });
-  </script>
-
-
+  <!-- ========================= -->
+  <!-- JS -->
+  <!-- ========================= -->
+  <script src="js/prompt-engineer.js"></script>
 </body>
 </html>
