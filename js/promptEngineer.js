@@ -15,7 +15,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let selectedCategory = "general";
 
-  // ============ Event Bindings ============
   if (analyzeBtn) {
     analyzeBtn.addEventListener("click", () => {
       const prompt = originalPrompt.value.trim();
@@ -66,7 +65,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Category selection
   document.querySelectorAll(".btn-sm").forEach((btn) => {
     btn.addEventListener("click", () => {
       document.querySelectorAll(".btn-sm").forEach((b) => b.classList.remove("active"));
@@ -75,7 +73,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // Load initial recent optimizations
   loadRecentOptimizations();
 });
 
@@ -126,7 +123,7 @@ async function optimizePrompt(prompt, category) {
 
     displayOptimizedPrompt(data);
     updateCreditsDisplay();
-    loadRecentOptimizations(); // refresh after new optimization
+    loadRecentOptimizations();
   } catch (err) {
     hideLoading();
     console.error("Optimize error:", err);
@@ -150,10 +147,9 @@ async function loadPromptHistory() {
         li.className = "project-item";
         li.innerHTML = `
           <div>
-            <h4>${item.title || "Untitled Prompt"}</h4>
-            <p class="text-sm text-gray">${new Date(item.createdAt).toLocaleDateString()} • ${item.category || "General"}</p>
+            <h4>${item.originalPrompt?.substring(0, 50) || "Untitled Prompt"}</h4>
+            <p class="text-sm text-gray">${new Date(item.timestamp?._seconds * 1000).toLocaleDateString()} • ${item.category || item.type}</p>
           </div>
-          <button class="btn btn-outline" onclick="loadHistoryItem('${item.id}')">Open</button>
         `;
         historyList.appendChild(li);
       });
@@ -162,21 +158,6 @@ async function loadPromptHistory() {
     }
   } catch (err) {
     console.error("History error:", err);
-  }
-}
-
-async function loadHistoryItem(id) {
-  try {
-    const res = await makeAuthenticatedRequest(`/api/prompt/history/${id}`);
-    const data = await res.json();
-    if (!data.success) return alert("❌ Failed to load item.");
-
-    document.getElementById("original-prompt").value = data.prompt || "";
-    document.getElementById("optimized-prompt").value = data.optimizedPrompt || "";
-    updateQualityMetrics(data.analysis || {});
-    document.getElementById("history-modal").style.display = "none";
-  } catch (err) {
-    console.error("Load history item error:", err);
   }
 }
 
@@ -195,9 +176,9 @@ async function loadRecentOptimizations() {
         const div = document.createElement("div");
         div.className = "optimization-example";
         div.innerHTML = `
-          <h5>${item.title || "Untitled Prompt"}</h5>
+          <h5>${item.originalPrompt?.substring(0, 50) || "Untitled Prompt"}</h5>
           <p class="text-sm text-gray">${item.optimizedPrompt?.substring(0, 100) || "No optimized text"}...</p>
-          <p class="text-xs text-gray">${new Date(item.createdAt).toLocaleString()}</p>
+          <p class="text-xs text-gray">${new Date(item.timestamp?._seconds * 1000).toLocaleString()}</p>
         `;
         container.appendChild(div);
       });
@@ -244,11 +225,10 @@ async function updateCreditsDisplay() {
   try {
     const res = await makeAuthenticatedRequest("/api/prompt/credits");
     const data = await res.json();
-    if (data.success) {
+    if (data.success && data.credits) {
       const creditsElement = document.querySelector(".user-credits span");
       if (creditsElement) {
-        const remaining = data.total - data.used;
-        creditsElement.textContent = `${remaining}/${data.total} Credits`;
+        creditsElement.textContent = `${data.credits.currentCredits} Credits`;
       }
     }
   } catch (err) {
