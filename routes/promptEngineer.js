@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const PromptEngineerService = require('../services/promptEngineerService');
-const ImprovedCreditSystem = require('../services/ImprovedCreditSystem');
+const ImprovedCreditSystem = require('../services/improvedCreditSystem');
 const admin = require('firebase-admin');
 
 const promptService = new PromptEngineerService();
@@ -31,60 +31,34 @@ router.post('/optimize', verifyToken, async (req, res) => {
         const userId = req.user.uid;
 
         if (!prompt || prompt.trim().length === 0) {
-            return res.status(400).json({ 
-                error: 'Prompt is required and cannot be empty' 
-            });
+            return res.status(400).json({ error: 'Prompt is required and cannot be empty' });
         }
 
-        // Calculate word count for validation
         const wordCount = prompt.trim().split(/\s+/).filter(word => word.length > 0).length;
-        
         if (wordCount > 15000) {
-            return res.status(400).json({ 
-                error: 'Prompt exceeds maximum length of 15,000 words' 
-            });
+            return res.status(400).json({ error: 'Prompt exceeds maximum length of 15,000 words' });
         }
 
         const validCategories = ['general', 'academic', 'creative', 'technical', 'business'];
         if (!validCategories.includes(category)) {
-            return res.status(400).json({ 
-                error: 'Invalid category. Must be one of: ' + validCategories.join(', ') 
-            });
+            return res.status(400).json({ error: 'Invalid category. Must be one of: ' + validCategories.join(', ') });
         }
 
         const result = await promptService.optimizePrompt(prompt, category, userId);
-        
-        // Handle limit exceeded responses
+
         if (!result.success && result.error === 'LIMIT_EXCEEDED') {
-            return res.status(429).json({
-                error: result.message,
-                limitExceeded: true
-            });
+            return res.status(429).json({ error: result.message, limitExceeded: true });
         }
-        
-        // Handle insufficient credits
+
         if (!result.success && result.error === 'INSUFFICIENT_CREDITS') {
-            return res.status(402).json({
-                error: result.message,
-                insufficientCredits: true
-            });
+            return res.status(402).json({ error: result.message, insufficientCredits: true });
         }
-        
+
         res.json(result);
 
     } catch (error) {
         console.error('Prompt optimization error:', error);
-        
-        if (error.message.includes('insufficient credits')) {
-            return res.status(402).json({ 
-                error: error.message,
-                insufficientCredits: true 
-            });
-        }
-        
-        res.status(500).json({ 
-            error: error.message || 'Failed to optimize prompt' 
-        });
+        res.status(500).json({ error: error.message || 'Failed to optimize prompt' });
     }
 });
 
@@ -95,53 +69,29 @@ router.post('/analyze', verifyToken, async (req, res) => {
         const userId = req.user.uid;
 
         if (!prompt || prompt.trim().length === 0) {
-            return res.status(400).json({ 
-                error: 'Prompt is required and cannot be empty' 
-            });
+            return res.status(400).json({ error: 'Prompt is required and cannot be empty' });
         }
 
-        // Calculate word count for validation
         const wordCount = prompt.trim().split(/\s+/).filter(word => word.length > 0).length;
-        
         if (wordCount > 15000) {
-            return res.status(400).json({ 
-                error: 'Prompt exceeds maximum length of 15,000 words' 
-            });
+            return res.status(400).json({ error: 'Prompt exceeds maximum length of 15,000 words' });
         }
 
         const result = await promptService.analyzePromptWithCredits(prompt, userId);
-        
-        // Handle limit exceeded responses
+
         if (!result.success && result.error === 'LIMIT_EXCEEDED') {
-            return res.status(429).json({
-                error: result.message,
-                limitExceeded: true
-            });
+            return res.status(429).json({ error: result.message, limitExceeded: true });
         }
-        
-        // Handle insufficient credits
+
         if (!result.success && result.error === 'INSUFFICIENT_CREDITS') {
-            return res.status(402).json({
-                error: result.message,
-                insufficientCredits: true
-            });
+            return res.status(402).json({ error: result.message, insufficientCredits: true });
         }
-        
+
         res.json(result);
 
     } catch (error) {
         console.error('Prompt analysis error:', error);
-        
-        if (error.message.includes('insufficient credits')) {
-            return res.status(402).json({ 
-                error: error.message,
-                insufficientCredits: true 
-            });
-        }
-        
-        res.status(500).json({ 
-            error: error.message || 'Failed to analyze prompt' 
-        });
+        res.status(500).json({ error: error.message || 'Failed to analyze prompt' });
     }
 });
 
@@ -152,22 +102,15 @@ router.get('/history', verifyToken, async (req, res) => {
         const limit = parseInt(req.query.limit) || 20;
 
         if (limit > 100) {
-            return res.status(400).json({ 
-                error: 'Limit cannot exceed 100' 
-            });
+            return res.status(400).json({ error: 'Limit cannot exceed 100' });
         }
 
         const history = await promptService.getPromptHistory(userId, limit);
-        res.json({
-            success: true,
-            history
-        });
+        res.json({ success: true, history });
 
     } catch (error) {
         console.error('Get prompt history error:', error);
-        res.status(500).json({ 
-            error: 'Failed to retrieve prompt history' 
-        });
+        res.status(500).json({ error: 'Failed to retrieve prompt history' });
     }
 });
 
@@ -175,15 +118,10 @@ router.get('/history', verifyToken, async (req, res) => {
 router.get('/templates', (req, res) => {
     try {
         const templates = promptService.getQuickTemplates();
-        res.json({
-            success: true,
-            templates
-        });
+        res.json({ success: true, templates });
     } catch (error) {
         console.error('Get templates error:', error);
-        res.status(500).json({ 
-            error: 'Failed to retrieve templates' 
-        });
+        res.status(500).json({ error: 'Failed to retrieve templates' });
     }
 });
 
@@ -191,21 +129,19 @@ router.get('/templates', (req, res) => {
 router.get('/credits', verifyToken, async (req, res) => {
     try {
         const userId = req.user.uid;
-        const credits = await atomicCredit.getUserCredits(userId);
-        
+        const credits = await creditSystem.getUserCredits(userId);
+
         res.json({
             success: true,
-            credits: credits,
+            credits,
             costs: {
-                optimization: promptService.OPTIMIZATION_CREDITS,
-                analysis: promptService.ANALYSIS_CREDITS
+                optimization: promptService.CREDIT_RATIOS.output,
+                analysis: promptService.CREDIT_RATIOS.input
             }
         });
     } catch (error) {
         console.error('Get credits error:', error);
-        res.status(500).json({ 
-            error: 'Failed to retrieve credits' 
-        });
+        res.status(500).json({ error: 'Failed to retrieve credits' });
     }
 });
 
@@ -214,16 +150,10 @@ router.get('/validate', verifyToken, async (req, res) => {
     try {
         const userId = req.user.uid;
         const validation = await promptService.planValidator.validateUserPlan(userId);
-        
-        res.json({
-            success: true,
-            validation
-        });
+        res.json({ success: true, validation });
     } catch (error) {
         console.error('Plan validation error:', error);
-        res.status(500).json({ 
-            error: 'Failed to validate plan' 
-        });
+        res.status(500).json({ error: 'Failed to validate plan' });
     }
 });
 
@@ -232,13 +162,10 @@ router.get('/credit-info', verifyToken, async (req, res) => {
     try {
         const userId = req.user.uid;
         const creditInfo = await promptService.getUserCreditInfo(userId);
-        
         res.json(creditInfo);
     } catch (error) {
         console.error('Get credit info error:', error);
-        res.status(500).json({ 
-            error: 'Failed to retrieve credit information' 
-        });
+        res.status(500).json({ error: 'Failed to retrieve credit information' });
     }
 });
 
