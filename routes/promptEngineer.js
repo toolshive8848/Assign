@@ -5,7 +5,7 @@ const ImprovedCreditSystem = require('../services/ImprovedCreditSystem');
 const admin = require('firebase-admin');
 
 const promptService = new PromptEngineerService();
-const atomicCredit = new AtomicCreditSystem();
+const creditSystem = new ImprovedCreditSystem();
 
 // Middleware to verify Firebase ID token
 const verifyToken = async (req, res, next) => {
