@@ -6,7 +6,6 @@ import {
   query,
   orderBy,
   limit,
-  getDocs,
 } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
 
 class DashboardData {
@@ -14,16 +13,53 @@ class DashboardData {
     this.user = null;
   }
 
-  init() {
-    auth.onAuthStateChanged(async (user) => {
-      if (!user) {
-        window.location.href = "/login.html";
+   init() {
+  auth.onAuthStateChanged((user) => {
+    if (!user) {
+      window.location.href = "auth.html"; // or show login UI
+      return;
+    }
+
+    this.user = user;
+    console.log("✅ Dashboard logged in:", user.email);
+
+    // 🔹 Real-time Firestore listener for user plan/credits
+    const userRef = doc(db, "users", user.uid);
+    onSnapshot(userRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+
+        // Update credits
+        const creditsEl = document.getElementById("user-credits");
+        if (creditsEl) {
+          const maxCredits =
+            data.planType === "pro"
+              ? 2000
+              : data.planType === "custom"
+              ? 3300
+              : 200;
+          creditsEl.textContent = `${data.credits || 0}/${maxCredits} Credits`;
+        }
+
+        // Update plan
+        const planEl = document.getElementById("user-plan");
+        if (planEl) {
+          planEl.textContent =
+            data.planType === "pro"
+              ? "Pro Plan"
+              : data.planType === "custom"
+              ? "Custom Plan"
+              : "Free Plan";
+        }
       } else {
-        this.user = user;
-        await this.loadDashboard();
+        console.warn("⚠️ No user doc found for:", user.uid);
       }
     });
-  }
+
+    // Keep your existing dashboard loading
+    this.loadDashboard();
+  });
+}
 
   async loadDashboard() {
     if (!this.user) return;
