@@ -1,131 +1,348 @@
-const admin = require("firebase-admin");
-const ImprovedCreditSystem = require("./improvedCreditSystem");
-const { GeminiAPI } = require("./geminiService"); // assuming you already wrapped Gemini
-
-const db = admin.firestore();
-const creditSystem = new ImprovedCreditSystem();
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const admin = require('firebase-admin');
+const ImprovedCreditSystem = require('./improvedCreditSystem');
+const PlanValidator = require('./planValidator');
+const { logger } = require('../utils/logger');
 
 class PromptEngineerService {
-  constructor() {
-    this.gemini = new GeminiAPI(process.env.GEMINI_API_KEY);
-  }
+    constructor() {
+        this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
 
-  /**
-   * 🔹 Optimize a prompt (paid with credits)
-   */
-  async optimizePrompt(originalPrompt, category, userId) {
-    if (!originalPrompt || originalPrompt.length < 10) {
-      throw new Error("Prompt must be at least 10 characters long");
+        try {
+            this.db = admin.firestore();
+        } catch (error) {
+            logger.warn('Firebase not initialized, using mock database for prompt engineer service', {
+                service: 'PromptEngineerService',
+                method: 'constructor'
+            });
+            this.db = null;
+        }
+
+        this.creditSystem = new ImprovedCreditSystem();
+        this.planValidator = new PlanValidator();
+
+        this.CREDIT_RATIOS = {
+            input: 20,
+            output: 10
+        };
     }
 
-    // Example cost: 2 credits per 50 words
-    const wordCount = originalPrompt.split(/\s+/).length;
-    const cost = Math.ceil(wordCount / 50) * 2;
-
-    const session = await creditSystem.startSession(userId, cost);
-    try {
-      const optimized = await this.gemini.rewrite(
-        `Optimize this ${category} prompt: ${originalPrompt}`
-      );
-
-      await creditSystem.commit(session);
-
-      // Save in Firestore
-      const ref = await db.collection("promptOptimizations").add({
-        userId,
-        originalPrompt,
-        optimizedPrompt: optimized,
-        category,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      return { id: ref.id, optimized };
-    } catch (err) {
-      await creditSystem.rollback(session);
-      throw err;
-    }
-  }
-
-  /**
-   * 🔹 Analyze prompt (paid with credits)
-   */
-  async analyzePromptWithCredits(prompt, userId) {
-    if (!prompt || prompt.length < 10) {
-      throw new Error("Prompt must be at least 10 characters long");
+    calculateCreditsNeeded(inputWords, outputWords) {
+        const inputCredits = Math.ceil(inputWords / this.CREDIT_RATIOS.input);
+        const outputCredits = Math.ceil(outputWords / this.CREDIT_RATIOS.output);
+        return inputCredits + outputCredits;
     }
 
-    // Example cost: 1 credit per 30 words
-    const wordCount = prompt.split(/\s+/).length;
-    const cost = Math.ceil(wordCount / 30);
-
-    const session = await creditSystem.startSession(userId, cost);
-    try {
-      const analysis = await this.gemini.scorePrompt(
-        `Analyze this prompt for clarity, specificity, and context: ${prompt}`
-      );
-
-      await creditSystem.commit(session);
-
-      const ref = await db.collection("promptAnalyses").add({
-        userId,
-        prompt,
-        analysis,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      return { id: ref.id, ...analysis };
-    } catch (err) {
-      await creditSystem.rollback(session);
-      throw err;
-    }
-  }
-
-  /**
-   * 🔹 Analyze prompt (free, no credits)
-   */
-  async analyzePromptFree(prompt) {
-    if (!prompt || prompt.length < 10) {
-      throw new Error("Prompt must be at least 10 characters long");
+    calculateWordCount(text) {
+        if (!text || typeof text !== 'string') return 0;
+        return text.trim().split(/\s+/).filter(word => word.length > 0).length;
     }
 
-    // Free mode: simplified Gemini call
-    return this.gemini.scorePrompt(
-      `Analyze this prompt (free mode, quick insights): ${prompt}`
-    );
-  }
+    async analyzePromptQuality(prompt) {
+        try {
+            const analysisPrompt = `
+Analyze the following prompt and provide a detailed quality assessment. Return your response in JSON format with the following structure:
 
-  /**
-   * 🔹 Get user’s credit info
-   */
-  async getUserCreditInfo(userId) {
-    const doc = await db.collection("users").doc(userId).get();
-    if (!doc.exists) return { credits: 0, planType: "freemium" };
-    const data = doc.data();
-    return { credits: data.credits || 0, planType: data.planType || "freemium" };
-  }
+{
+  "clarity": { "score": 0-100, "feedback": "..." },
+  "specificity": { "score": 0-100, "feedback": "..." },
+  "context": { "score": 0-100, "feedback": "..." },
+  "overall": { "score": 0-100, "feedback": "..." },
+  "strengths": ["..."],
+  "improvements": ["..."]
+}
 
-  /**
-   * 🔹 Get optimization & analysis history
-   */
-  async getHistory(userId) {
-    const [optSnap, anaSnap] = await Promise.all([
-      db.collection("promptOptimizations")
-        .where("userId", "==", userId)
-        .orderBy("createdAt", "desc")
-        .limit(10)
-        .get(),
-      db.collection("promptAnalyses")
-        .where("userId", "==", userId)
-        .orderBy("createdAt", "desc")
-        .limit(10)
-        .get(),
-    ]);
+Prompt to analyze:
+"${prompt}"
+`;
 
-    return {
-      optimizations: optSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })),
-      analyses: anaSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })),
-    };
-  }
+            const result = await this.model.generateContent(analysisPrompt);
+            const response = result.response;
+            const text = response.text();
+
+            const jsonMatch = text.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                return JSON.parse(jsonMatch[0]);
+            }
+
+            return {
+                clarity: { score: 50, feedback: "Unable to analyze clarity" },
+                specificity: { score: 50, feedback: "Unable to analyze specificity" },
+                context: { score: 50, feedback: "Unable to analyze context" },
+                overall: { score: 50, feedback: "Analysis failed" },
+                strengths: [],
+                improvements: ["Please try submitting your prompt again"]
+            };
+        } catch (error) {
+            logger.error('Error analyzing prompt quality', { error: error.message, stack: error.stack });
+            throw new Error('Failed to analyze prompt quality');
+        }
+    }
+
+    async checkLimitsAndCredits(userId, inputWords, estimatedOutputWords) {
+        const planValidation = await this.planValidator.validateUserPlan(userId);
+        const userPlan = planValidation.isValid ? (planValidation.plan || 'free') : 'free';
+
+        return {
+            canProceed: true,
+            creditsNeeded: this.calculateCreditsNeeded(inputWords, estimatedOutputWords),
+            limitExceeded: false,
+            userPlan,
+            message: ''
+        };
+    }
+
+    async optimizePrompt(originalPrompt, category = 'general', userId) {
+        try {
+            const inputWords = this.calculateWordCount(originalPrompt);
+            const estimatedOutputWords = Math.min(inputWords * 1.5, 1000);
+
+            const limitCheck = await this.checkLimitsAndCredits(userId, inputWords, estimatedOutputWords);
+
+            if (!limitCheck.canProceed) {
+                return { success: false, error: 'LIMIT_EXCEEDED', message: limitCheck.message };
+            }
+
+            let creditTransaction = null;
+            if (limitCheck.creditsNeeded > 0) {
+                creditTransaction = await this.creditSystem.deductCreditsAtomic(
+                    userId,
+                    limitCheck.creditsNeeded,
+                    limitCheck.userPlan,
+                    'prompt'
+                );
+
+                if (!creditTransaction.success) {
+                    return { success: false, error: 'INSUFFICIENT_CREDITS', message: creditTransaction.message };
+                }
+            }
+
+            try {
+                const optimizationPrompt = `
+You are an expert prompt engineer. Optimize the following prompt:
+
+Category: ${category}
+Original Prompt: "${originalPrompt}"
+
+Return JSON:
+{
+  "optimizedPrompt": "optimized version",
+  "improvements": ["..."],
+  "explanation": "why changes help",
+  "categoryTips": "tips for ${category} prompts"
+}`;
+
+                const result = await this.model.generateContent(optimizationPrompt);
+                const response = result.response;
+                const text = response.text();
+
+                const jsonMatch = text.match(/\{[\s\S]*\}/);
+                let optimizationResult;
+
+                if (jsonMatch) {
+                    optimizationResult = JSON.parse(jsonMatch[0]);
+                } else {
+                    optimizationResult = {
+                        optimizedPrompt: text,
+                        improvements: ["General optimization applied"],
+                        explanation: "Optimized for clarity and effectiveness",
+                        categoryTips: `Consider ${category}-specific best practices`
+                    };
+                }
+
+                const actualOutputWords = this.calculateWordCount(optimizationResult.optimizedPrompt);
+
+                await this.storeOptimizationResult(userId, {
+                    originalPrompt,
+                    optimizedPrompt: optimizationResult.optimizedPrompt,
+                    category,
+                    improvements: optimizationResult.improvements,
+                    explanation: optimizationResult.explanation,
+                    categoryTips: optimizationResult.categoryTips,
+                    inputWords,
+                    outputWords: actualOutputWords,
+                    creditsUsed: limitCheck.creditsNeeded || 0,
+                    timestamp: admin.firestore.FieldValue.serverTimestamp()
+                });
+
+                return {
+                    success: true,
+                    ...optimizationResult,
+                    inputWords,
+                    outputWords: actualOutputWords,
+                    creditsUsed: limitCheck.creditsNeeded || 0
+                };
+
+            } catch (err) {
+                if (creditTransaction) {
+                    await this.creditSystem.rollbackTransaction(creditTransaction.transactionId);
+                }
+                throw err;
+            }
+
+        } catch (error) {
+            logger.error('Error optimizing prompt', { error: error.message, stack: error.stack });
+            throw new Error(error.message || 'Failed to optimize prompt');
+        }
+    }
+
+    async analyzePromptWithCredits(prompt, userId) {
+        try {
+            const inputWords = this.calculateWordCount(prompt);
+            const estimatedOutputWords = 200;
+
+            const limitCheck = await this.checkLimitsAndCredits(userId, inputWords, estimatedOutputWords);
+
+            if (!limitCheck.canProceed) {
+                return { success: false, error: 'LIMIT_EXCEEDED', message: limitCheck.message };
+            }
+
+            let creditTransaction = null;
+            if (limitCheck.creditsNeeded > 0) {
+                creditTransaction = await this.creditSystem.deductCreditsAtomic(
+                    userId,
+                    limitCheck.creditsNeeded,
+                    limitCheck.userPlan,
+                    'prompt'
+                );
+
+                if (!creditTransaction.success) {
+                    return { success: false, error: 'INSUFFICIENT_CREDITS', message: creditTransaction.message };
+                }
+            }
+
+            try {
+                const analysis = await this.analyzePromptQuality(prompt);
+                const actualOutputWords = 200;
+
+                await this.storeAnalysisResult(userId, {
+                    prompt,
+                    analysis,
+                    inputWords,
+                    outputWords: actualOutputWords,
+                    creditsUsed: limitCheck.creditsNeeded || 0,
+                    timestamp: admin.firestore.FieldValue.serverTimestamp()
+                });
+
+                return {
+                    success: true,
+                    analysis,
+                    inputWords,
+                    outputWords: actualOutputWords,
+                    creditsUsed: limitCheck.creditsNeeded || 0
+                };
+
+            } catch (err) {
+                if (creditTransaction) {
+                    await this.creditSystem.rollbackTransaction(creditTransaction.transactionId);
+                }
+                throw err;
+            }
+
+        } catch (error) {
+            logger.error('Error analyzing prompt with credits', { error: error.message, stack: error.stack });
+            throw new Error(error.message || 'Failed to analyze prompt');
+        }
+    }
+
+    async getUserCreditInfo(userId) {
+        try {
+            const planValidation = await this.planValidator.validateUserPlan(userId);
+            const userPlan = planValidation.isValid ? (planValidation.plan || 'free') : 'free';
+
+            let currentCredits = 0;
+
+            if (this.db) {
+                try {
+                    const userDoc = await this.db.collection('users').doc(userId).get();
+                    const userData = userDoc.exists ? userDoc.data() : {};
+                    currentCredits = userData.credits || 0;
+                } catch {
+                    currentCredits = 100;
+                }
+            } else {
+                currentCredits = 100;
+            }
+
+            return { success: true, userPlan, currentCredits, creditRatios: this.CREDIT_RATIOS };
+        } catch (error) {
+            throw new Error('Failed to get credit information');
+        }
+    }
+
+    async storeOptimizationResult(userId, data) {
+        if (this.db) {
+            await this.db.collection('promptOptimizations').add({ userId, ...data });
+        }
+    }
+
+    async storeAnalysisResult(userId, data) {
+        if (this.db) {
+            await this.db.collection('promptAnalyses').add({ userId, ...data });
+        }
+    }
+
+    async getPromptHistory(userId, limit = 20) {
+        try {
+            if (this.db) {
+                const optimizations = await this.db.collection('promptOptimizations')
+                    .where('userId', '==', userId)
+                    .orderBy('timestamp', 'desc')
+                    .limit(limit)
+                    .get();
+
+                const analyses = await this.db.collection('promptAnalyses')
+                    .where('userId', '==', userId)
+                    .orderBy('timestamp', 'desc')
+                    .limit(limit)
+                    .get();
+
+                const history = [
+                    ...optimizations.docs.map(doc => ({ id: doc.id, type: 'optimization', ...doc.data() })),
+                    ...analyses.docs.map(doc => ({ id: doc.id, type: 'analysis', ...doc.data() }))
+                ];
+
+                history.sort((a, b) => b.timestamp?.toMillis() - a.timestamp?.toMillis());
+
+                return history;
+            } else {
+                return [];
+            }
+        } catch (error) {
+            throw new Error('Failed to retrieve prompt history');
+        }
+    }
+
+    getQuickTemplates() {
+        return {
+            general: [
+                "Please explain [topic] in simple terms...",
+                "Create a step-by-step guide for [task]...",
+                "Compare and contrast [A] and [B]..."
+            ],
+            academic: [
+                "Analyze [topic] from the perspective of [framework]...",
+                "Develop a research question about [subject]...",
+                "Summarize the key findings of [area]..."
+            ],
+            creative: [
+                "Write a [genre] story about [character]...",
+                "Create a character description for [type]...",
+                "Generate creative ideas for [project]..."
+            ],
+            technical: [
+                "Explain how to implement [concept] in [language]...",
+                "Debug this [language] code: [code snippet]...",
+                "Design a system architecture for [app]..."
+            ],
+            business: [
+                "Create a strategy for [company/product]...",
+                "Analyze market potential for [product]...",
+                "Develop a marketing plan for [product/service]..."
+            ]
+        };
+    }
 }
 
 module.exports = PromptEngineerService;
