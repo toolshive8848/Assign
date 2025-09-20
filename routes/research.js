@@ -1,17 +1,18 @@
-// routes/research.js
 const express = require("express");
 const router = express.Router();
 const admin = require("firebase-admin");
+
 const ImprovedCreditSystem = require("../services/improvedCreditSystem");
 const ResearchService = require("../services/researchService");
 
 const creditSystem = new ImprovedCreditSystem();
 const researchService = new ResearchService();
 
-// Dummy plan validator import (adjust if your project path differs)
-const planValidator = require("../services/planValidator");
+const db = admin.firestore();
 
-// Auth middleware
+/**
+ * Middleware-like auth check (no external middleware here)
+ */
 async function requireAuth(req, res, next) {
   try {
     const token = req.headers.authorization?.split("Bearer ")[1];
@@ -27,242 +28,182 @@ async function requireAuth(req, res, next) {
 }
 
 /**
- * POST /api/research/query
- * Run a research query
+ * 🔹 Run research query
  */
 router.post("/query", requireAuth, async (req, res) => {
-  const { query, depth = 1, researchType = "general", sources = [], saveToHistory = true } = req.body;
+  const { query, depth = 1, researchType = "general" } = req.body;
   const userId = req.user.uid;
 
-  let creditDeductionResult = null;
+  if (!query || query.length < 3) {
+    return res.status(400).json({ error: "Query must be at least 3 characters" });
+  }
 
   try {
-    if (!query || query.length < 5) {
-      return res.status(400).json({ success: false, error: "Query must be at least 5 characters long" });
-    }
+    const cost = depth * 10;
+    const session = await creditSystem.startSession(userId, cost);
 
-    // Step 1: Estimate words
-    const estimatedWordCount = Math.min(depth * 1000, 8000);
-    const estimatedCredits = researchService.calculateResearchCredits(estimatedWordCount, depth);
+    const results = await researchService.runQuery(query, { depth, researchType });
 
-    // Step 2: Validate plan
-    const planValidation = await planValidator.validateRequest(userId, query, estimatedWordCount, "research");
-    if (!planValidation.isValid) {
-      return res.status(403).json({
-        success: false,
-        error: planValidation.error,
-        errorCode: planValidation.errorCode,
-        details: {
-          planType: planValidation.planType,
-          currentUsage: planValidation.currentUsage,
-          limits: planValidation.monthlyLimit || planValidation.maxLength || planValidation.maxCount
-        }
-      });
-    }
+    await creditSystem.commit(session);
 
-    // Step 3: Deduct credits (words → credits inside ImprovedCreditSystem)
-    creditDeductionResult = await creditSystem.deductCreditsAtomic(
+    // Store research history
+    const docRef = await db.collection("research").add({
       userId,
-      estimatedWordCount,
-      planValidation.userPlan.planType,
-      "research"
-    );
-
-    if (!creditDeductionResult.success) {
-      return res.status(402).json({
-        success: false,
-        error: "Insufficient credits for research",
-        details: {
-          required: estimatedCredits,
-          available: creditDeductionResult.availableCredits,
-          planType: planValidation.userPlan.planType
-        }
-      });
-    }
-
-    // Step 4: Conduct research
-    const startTime = Date.now();
-    const researchResult = await researchService.conductResearch(query, researchType, depth, sources, userId);
-    const processingTime = Date.now() - startTime;
-
-    // Step 5: Reconcile usage
-    const actualWordCount = researchResult.wordCount;
-    let finalCreditsUsed = creditDeductionResult.creditsDeducted;
-
-    if (actualWordCount !== estimatedWordCount) {
-      const wordDiff = actualWordCount - estimatedWordCount;
-
-      if (wordDiff > 0) {
-        const addl = await creditSystem.deductCreditsAtomic(
-          userId,
-          wordDiff,
-          planValidation.userPlan.planType,
-          "research"
-        );
-        if (addl.success) {
-          finalCreditsUsed += addl.creditsDeducted;
-        }
-      } else if (wordDiff < 0) {
-        const overWords = Math.abs(wordDiff);
-        const refundCredits = Math.ceil(overWords / 5); // research ratio
-        await creditSystem.refundCredits(userId, refundCredits, creditDeductionResult.transactionId);
-        finalCreditsUsed -= refundCredits;
-      }
-    }
-
-    // Step 6: Save to history
-    let researchId = null;
-    if (saveToHistory) {
-      researchId = await researchService.saveResearchToHistory(userId, researchResult.data, {
-        ...researchResult.metadata,
-        processingTime,
-        creditsUsed: finalCreditsUsed,
-        transactionId: creditDeductionResult.transactionId,
-        citations: researchResult.data.citations,
-        sourceValidation: researchResult.data.sourceValidation,
-        recommendations: researchResult.data.recommendations,
-        qualityScore: researchResult.data.qualityScore
-      });
-    }
-
-    // Step 7: Respond
-    res.json({
-      success: true,
-      data: {
-        researchId,
-        query,
-        researchType,
-        depth,
-        results: researchResult.data,
-        metadata: {
-          wordCount: researchResult.wordCount,
-          processingTime,
-          creditsUsed: finalCreditsUsed,
-          timestamp: new Date().toISOString(),
-          sources: researchResult.data.sources || [],
-          citations: researchResult.data.citations || [],
-          sourceValidation: researchResult.data.sourceValidation || {},
-          recommendations: researchResult.data.recommendations || [],
-          qualityScore: researchResult.data.qualityScore || 0
-        }
-      }
+      query,
+      depth,
+      researchType,
+      results,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
-  } catch (error) {
-    console.error("Research query error:", error);
 
-    if (creditDeductionResult && creditDeductionResult.success) {
-      try {
-        await creditSystem.rollbackTransaction(
-          userId,
-          creditDeductionResult.transactionId,
-          creditDeductionResult.creditsDeducted,
-          creditDeductionResult.wordsAllocated
-        );
-      } catch (rollbackError) {
-        console.error("Credit rollback failed:", rollbackError);
-      }
-    }
-
-    res.status(500).json({
-      success: false,
-      error: "Research generation failed",
-      details: error.message
-    });
+    res.json({ id: docRef.id, results });
+  } catch (err) {
+    console.error("Research error:", err);
+    res.status(500).json({ error: "Failed to run research query" });
   }
 });
 
 /**
- * POST /api/research/validate-sources
+ * 🔹 Get research history for user
  */
-router.post("/validate-sources", requireAuth, async (req, res) => {
-  const { sources } = req.body;
-  const userId = req.user.uid;
-
-  if (!sources || !Array.isArray(sources) || sources.length === 0) {
-    return res.status(400).json({ success: false, error: "Sources array is required" });
-  }
-
+router.get("/history", requireAuth, async (req, res) => {
   try {
-    const planValidation = await planValidator.validateRequest(userId, "", 0, "research");
-    if (!planValidation.isValid) {
-      return res.status(403).json({ success: false, error: planValidation.error });
-    }
+    const snapshot = await db
+      .collection("research")
+      .where("userId", "==", req.user.uid)
+      .orderBy("createdAt", "desc")
+      .limit(20)
+      .get();
 
-    const estimatedCredits = Math.ceil(sources.length * 0.5);
-    const creditDeductionResult = await creditSystem.deductCreditsAtomic(
-      userId,
-      sources.length, // pass count, ratio applied inside
-      planValidation.userPlan.planType,
-      "research"
-    );
-
-    if (!creditDeductionResult.success) {
-      return res.status(402).json({ success: false, error: "Insufficient credits for source validation" });
-    }
-
-    const validationResult = await researchService.validateSources(sources);
-
-    await planValidator.recordUsage(userId, sources.length, estimatedCredits, "source_validation");
-
-    res.json({
-      success: true,
-      data: {
-        validatedSources: validationResult.validatedSources,
-        overallScore: validationResult.overallScore,
-        creditsUsed: estimatedCredits,
-        timestamp: new Date().toISOString()
-      }
-    });
-  } catch (error) {
-    console.error("Source validation error:", error);
-    res.status(500).json({ success: false, error: "Source validation failed", details: error.message });
+    const history = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    res.json(history);
+  } catch (err) {
+    console.error("Error fetching history:", err);
+    res.status(500).json({ error: "Failed to fetch history" });
   }
 });
 
 /**
- * POST /api/research/generate-citations
+ * 🔹 Get single research item
  */
-router.post("/generate-citations", requireAuth, async (req, res) => {
-  const { sources, format = "apa" } = req.body;
-  const userId = req.user.uid;
-
-  if (!sources || !Array.isArray(sources) || sources.length === 0) {
-    return res.status(400).json({ success: false, error: "Sources array is required" });
-  }
-
+router.get("/:id", requireAuth, async (req, res) => {
   try {
-    const planValidation = await planValidator.validateRequest(userId, "", 0, "research");
-    if (!planValidation.isValid) {
-      return res.status(403).json({ success: false, error: planValidation.error });
+    const doc = await db.collection("research").doc(req.params.id).get();
+    if (!doc.exists || doc.data().userId !== req.user.uid) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    res.json({ id: doc.id, ...doc.data() });
+  } catch (err) {
+    console.error("Error fetching research:", err);
+    res.status(500).json({ error: "Failed to fetch research" });
+  }
+});
+
+/**
+ * 🔹 Delete research item
+ */
+router.delete("/:id", requireAuth, async (req, res) => {
+  try {
+    const ref = db.collection("research").doc(req.params.id);
+    const doc = await ref.get();
+    if (!doc.exists || doc.data().userId !== req.user.uid) {
+      return res.status(404).json({ error: "Not found" });
     }
 
-    const estimatedCredits = Math.ceil(sources.length * 0.3);
-    const creditDeductionResult = await creditSystem.deductCreditsAtomic(
-      userId,
-      sources.length, // words-like unit for ratio
-      planValidation.userPlan.planType,
-      "research"
-    );
+    await ref.delete();
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error deleting research:", err);
+    res.status(500).json({ error: "Failed to delete research" });
+  }
+});
 
-    if (!creditDeductionResult.success) {
-      return res.status(402).json({ success: false, error: "Insufficient credits for citation generation" });
+/**
+ * 🔹 Export research in multiple formats
+ */
+router.get("/export/:id", requireAuth, async (req, res) => {
+  try {
+    const { format = "json" } = req.query;
+    const doc = await db.collection("research").doc(req.params.id).get();
+
+    if (!doc.exists || doc.data().userId !== req.user.uid) {
+      return res.status(404).json({ error: "Not found" });
     }
 
-    const citationResult = await researchService.generateCitations(sources, format);
+    const research = doc.data();
 
-    await planValidator.recordUsage(userId, sources.length, estimatedCredits, "citation_generation");
+    if (format === "json") {
+      res.json(research);
+    } else if (format === "txt") {
+      res.type("text/plain").send(research.results.map(r => r.text).join("\n"));
+    } else if (format === "md") {
+      res.type("text/markdown").send(`# Research: ${research.query}\n\n` +
+        research.results.map(r => `- ${r.text}`).join("\n"));
+    } else if (format === "pdf") {
+      // Lazy PDF export example (can integrate real PDF library)
+      res.type("application/pdf").send("PDF export not implemented yet.");
+    } else {
+      res.status(400).json({ error: "Unsupported format" });
+    }
+  } catch (err) {
+    console.error("Error exporting research:", err);
+    res.status(500).json({ error: "Failed to export research" });
+  }
+});
 
-    res.json({
-      success: true,
-      data: {
-        citations: citationResult.citations,
-        creditsUsed: estimatedCredits,
-        timestamp: new Date().toISOString()
-      }
+/**
+ * 🔹 Bookmark a source
+ */
+router.post("/bookmark", requireAuth, async (req, res) => {
+  try {
+    const { researchId, source } = req.body;
+    if (!researchId || !source) {
+      return res.status(400).json({ error: "Missing researchId or source" });
+    }
+
+    const ref = await db.collection("bookmarks").add({
+      userId: req.user.uid,
+      researchId,
+      source,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
-  } catch (error) {
-    console.error("Citation generation error:", error);
-    res.status(500).json({ success: false, error: "Citation generation failed", details: error.message });
+
+    res.json({ id: ref.id, success: true });
+  } catch (err) {
+    console.error("Error bookmarking:", err);
+    res.status(500).json({ error: "Failed to save bookmark" });
+  }
+});
+
+/**
+ * 🔹 Get sample quotes from a source
+ */
+router.get("/quote/:sourceId", requireAuth, async (req, res) => {
+  try {
+    const { sourceId } = req.params;
+    // Mock quotes for now
+    const quotes = [
+      { sourceId, text: "Sample quote 1 from source." },
+      { sourceId, text: "Sample quote 2 from source." },
+    ];
+    res.json(quotes);
+  } catch (err) {
+    console.error("Error fetching quotes:", err);
+    res.status(500).json({ error: "Failed to fetch quotes" });
+  }
+});
+
+/**
+ * 🔹 Generate PDF for a source
+ */
+router.get("/pdf/:sourceId", requireAuth, async (req, res) => {
+  try {
+    const { sourceId } = req.params;
+    // Placeholder PDF response
+    res.type("application/pdf").send(`PDF for source ${sourceId} (not implemented yet).`);
+  } catch (err) {
+    console.error("Error generating PDF:", err);
+    res.status(500).json({ error: "Failed to generate PDF" });
   }
 });
 
