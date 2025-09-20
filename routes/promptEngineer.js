@@ -1,106 +1,245 @@
-const express = require("express");
+const express = require('express');
 const router = express.Router();
-const { unifiedAuth } = require("../middleware/unifiedAuth");
-const PromptEngineerService = require("../services/promptEngineerService");
+const PromptEngineerService = require('../services/promptEngineerService');
+const ImprovedCreditSystem = require('../services/ImprovedCreditSystem');
+const admin = require('firebase-admin');
 
 const promptService = new PromptEngineerService();
+const atomicCredit = new AtomicCreditSystem();
 
-/**
- * 🔹 Optimize prompt (requires credits)
- */
-router.post("/optimize", unifiedAuth, async (req, res) => {
-  try {
-    const { prompt, category = "general" } = req.body;
-    const userId = req.user.uid;
+// Middleware to verify Firebase ID token
+const verifyToken = async (req, res, next) => {
+    try {
+        const idToken = req.headers.authorization?.split('Bearer ')[1];
+        if (!idToken) {
+            return res.status(401).json({ error: 'No token provided' });
+        }
 
-    if (!prompt) {
-      return res.status(400).json({ error: "Prompt is required" });
+        const decodedToken = await admin.auth().verifyIdToken(idToken);
+        req.user = decodedToken;
+        next();
+    } catch (error) {
+        console.error('Token verification error:', error);
+        res.status(401).json({ error: 'Invalid token' });
     }
+};
 
-    const result = await promptService.optimizePrompt(prompt, category, userId);
-    res.json(result);
-  } catch (err) {
-    console.error("Optimize error:", err);
-    res.status(500).json({ error: "Failed to optimize prompt" });
-  }
-});
+// Optimize prompt endpoint
+router.post('/optimize', verifyToken, async (req, res) => {
+    try {
+        const { prompt, category = 'general' } = req.body;
+        const userId = req.user.uid;
 
-/**
- * 🔹 Analyze prompt (requires credits)
- */
-router.post("/analyze", unifiedAuth, async (req, res) => {
-  try {
-    const { prompt } = req.body;
-    const userId = req.user.uid;
+        if (!prompt || prompt.trim().length === 0) {
+            return res.status(400).json({ 
+                error: 'Prompt is required and cannot be empty' 
+            });
+        }
 
-    if (!prompt) {
-      return res.status(400).json({ error: "Prompt is required" });
+        // Calculate word count for validation
+        const wordCount = prompt.trim().split(/\s+/).filter(word => word.length > 0).length;
+        
+        if (wordCount > 15000) {
+            return res.status(400).json({ 
+                error: 'Prompt exceeds maximum length of 15,000 words' 
+            });
+        }
+
+        const validCategories = ['general', 'academic', 'creative', 'technical', 'business'];
+        if (!validCategories.includes(category)) {
+            return res.status(400).json({ 
+                error: 'Invalid category. Must be one of: ' + validCategories.join(', ') 
+            });
+        }
+
+        const result = await promptService.optimizePrompt(prompt, category, userId);
+        
+        // Handle limit exceeded responses
+        if (!result.success && result.error === 'LIMIT_EXCEEDED') {
+            return res.status(429).json({
+                error: result.message,
+                limitExceeded: true
+            });
+        }
+        
+        // Handle insufficient credits
+        if (!result.success && result.error === 'INSUFFICIENT_CREDITS') {
+            return res.status(402).json({
+                error: result.message,
+                insufficientCredits: true
+            });
+        }
+        
+        res.json(result);
+
+    } catch (error) {
+        console.error('Prompt optimization error:', error);
+        
+        if (error.message.includes('insufficient credits')) {
+            return res.status(402).json({ 
+                error: error.message,
+                insufficientCredits: true 
+            });
+        }
+        
+        res.status(500).json({ 
+            error: error.message || 'Failed to optimize prompt' 
+        });
     }
-
-    const result = await promptService.analyzePromptWithCredits(prompt, userId);
-    res.json(result);
-  } catch (err) {
-    console.error("Analyze error:", err);
-    res.status(500).json({ error: "Failed to analyze prompt" });
-  }
 });
 
-/**
- * 🔹 Analyze prompt (free mode, no credits, no login)
- */
-router.post("/analyze-free", async (req, res) => {
-  try {
-    const { prompt } = req.body;
-    if (!prompt) {
-      return res.status(400).json({ error: "Prompt is required" });
+// Analyze prompt quality endpoint
+router.post('/analyze', verifyToken, async (req, res) => {
+    try {
+        const { prompt } = req.body;
+        const userId = req.user.uid;
+
+        if (!prompt || prompt.trim().length === 0) {
+            return res.status(400).json({ 
+                error: 'Prompt is required and cannot be empty' 
+            });
+        }
+
+        // Calculate word count for validation
+        const wordCount = prompt.trim().split(/\s+/).filter(word => word.length > 0).length;
+        
+        if (wordCount > 15000) {
+            return res.status(400).json({ 
+                error: 'Prompt exceeds maximum length of 15,000 words' 
+            });
+        }
+
+        const result = await promptService.analyzePromptWithCredits(prompt, userId);
+        
+        // Handle limit exceeded responses
+        if (!result.success && result.error === 'LIMIT_EXCEEDED') {
+            return res.status(429).json({
+                error: result.message,
+                limitExceeded: true
+            });
+        }
+        
+        // Handle insufficient credits
+        if (!result.success && result.error === 'INSUFFICIENT_CREDITS') {
+            return res.status(402).json({
+                error: result.message,
+                insufficientCredits: true
+            });
+        }
+        
+        res.json(result);
+
+    } catch (error) {
+        console.error('Prompt analysis error:', error);
+        
+        if (error.message.includes('insufficient credits')) {
+            return res.status(402).json({ 
+                error: error.message,
+                insufficientCredits: true 
+            });
+        }
+        
+        res.status(500).json({ 
+            error: error.message || 'Failed to analyze prompt' 
+        });
     }
-
-    const result = await promptService.analyzePromptFree(prompt);
-    res.json(result);
-  } catch (err) {
-    console.error("Analyze-free error:", err);
-    res.status(500).json({ error: "Failed to analyze prompt (free mode)" });
-  }
 });
 
-/**
- * 🔹 Get user history (requires login)
- */
-router.get("/history", unifiedAuth, async (req, res) => {
-  try {
-    const userId = req.user.uid;
-    const history = await promptService.getHistory(userId);
-    res.json(history);
-  } catch (err) {
-    console.error("History error:", err);
-    res.status(500).json({ error: "Failed to fetch history" });
-  }
+// Get prompt history endpoint
+router.get('/history', verifyToken, async (req, res) => {
+    try {
+        const userId = req.user.uid;
+        const limit = parseInt(req.query.limit) || 20;
+
+        if (limit > 100) {
+            return res.status(400).json({ 
+                error: 'Limit cannot exceed 100' 
+            });
+        }
+
+        const history = await promptService.getPromptHistory(userId, limit);
+        res.json({
+            success: true,
+            history
+        });
+
+    } catch (error) {
+        console.error('Get prompt history error:', error);
+        res.status(500).json({ 
+            error: 'Failed to retrieve prompt history' 
+        });
+    }
 });
 
-/**
- * 🔹 Get quick-start templates (static)
- */
-router.get("/templates", (req, res) => {
-  res.json([
-    { category: "General", prompt: "Summarize this article in 3 key points." },
-    { category: "Academic", prompt: "Explain the significance of quantum computing in simple terms." },
-    { category: "Creative", prompt: "Write a short story about time travel in 200 words." },
-    { category: "Technical", prompt: "Explain REST API vs GraphQL in detail." },
-  ]);
+// Get quick templates endpoint
+router.get('/templates', (req, res) => {
+    try {
+        const templates = promptService.getQuickTemplates();
+        res.json({
+            success: true,
+            templates
+        });
+    } catch (error) {
+        console.error('Get templates error:', error);
+        res.status(500).json({ 
+            error: 'Failed to retrieve templates' 
+        });
+    }
 });
 
-/**
- * 🔹 Get user credit info
- */
-router.get("/credit-info", unifiedAuth, async (req, res) => {
-  try {
-    const userId = req.user.uid;
-    const info = await promptService.getUserCreditInfo(userId);
-    res.json(info);
-  } catch (err) {
-    console.error("Credit-info error:", err);
-    res.status(500).json({ error: "Failed to fetch credit info" });
-  }
+// Get user credits endpoint
+router.get('/credits', verifyToken, async (req, res) => {
+    try {
+        const userId = req.user.uid;
+        const credits = await atomicCredit.getUserCredits(userId);
+        
+        res.json({
+            success: true,
+            credits: credits,
+            costs: {
+                optimization: promptService.OPTIMIZATION_CREDITS,
+                analysis: promptService.ANALYSIS_CREDITS
+            }
+        });
+    } catch (error) {
+        console.error('Get credits error:', error);
+        res.status(500).json({ 
+            error: 'Failed to retrieve credits' 
+        });
+    }
+});
+
+// Validate user plan endpoint
+router.get('/validate', verifyToken, async (req, res) => {
+    try {
+        const userId = req.user.uid;
+        const validation = await promptService.planValidator.validateUserPlan(userId);
+        
+        res.json({
+            success: true,
+            validation
+        });
+    } catch (error) {
+        console.error('Plan validation error:', error);
+        res.status(500).json({ 
+            error: 'Failed to validate plan' 
+        });
+    }
+});
+
+// Get user credit information endpoint
+router.get('/credit-info', verifyToken, async (req, res) => {
+    try {
+        const userId = req.user.uid;
+        const creditInfo = await promptService.getUserCreditInfo(userId);
+        
+        res.json(creditInfo);
+    } catch (error) {
+        console.error('Get credit info error:', error);
+        res.status(500).json({ 
+            error: 'Failed to retrieve credit information' 
+        });
+    }
 });
 
 module.exports = router;
