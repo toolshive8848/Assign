@@ -4,12 +4,11 @@ const fs = require('fs').promises;
 const path = require('path');
 const llmService = require('./services/llmService');
 const contentProcessor = require('./services/contentProcessor');
-const creditSystem = require('./services/creditSystem');
 const contentValidator = require('./services/contentValidator');
 const draftManager = require('./services/draftManager');
 const ContentFormatter = require('./services/contentFormatter');
 const PlanValidator = require('./services/planValidator');
-const ImprovedCreditSystem = require('./services/ImprovedCreditSystem');
+const ImprovedCreditSystem = require('./services/improvedCreditSystem');
 const ContentDatabase = require('./services/contentDatabase');
 const MultiPartGenerator = require('./services/multiPartGenerator');
 const OriginalityDetection = require('./services/originalityDetection');
@@ -24,7 +23,7 @@ const router = express.Router();
 // Initialize services
 const contentFormatterInstance = new ContentFormatter();
 const planValidatorInstance = new PlanValidator();
-const ImprovedCreditSystem = new ImprovedCreditSystem();
+const creditSystem = new ImprovedCreditSystem();
 const contentDatabase = new ContentDatabase();
 const multiPartGenerator = new MultiPartGenerator();
 const originalityDetection = new OriginalityDetection();
@@ -51,111 +50,150 @@ const authenticateToken = (req, res, next) => {
     }
 };
 
-// Enhanced AI content generation service with style and tone support
-const generateAssignmentContent = async (title, description, wordCount, citationStyle, style = 'Academic', tone = 'Formal') => {
-    // Enhanced content generation with LLM integration
+// Enhanced AI content generation service with style, tone, and citation support
+const generateAssignmentContent = async (
+    title, 
+    description, 
+    wordCount, 
+    citationStyle, 
+    style = 'Academic', 
+    tone = 'Formal'
+) => {
+    // Style templates for tone/structure
     const styleTemplates = {
-        'Academic': {
+        Academic: {
             introduction: 'This scholarly examination explores',
             transition: 'Furthermore, research indicates that',
             conclusion: 'In conclusion, the evidence demonstrates'
         },
-        'Business': {
+        Business: {
             introduction: 'This business analysis examines',
             transition: 'Market data suggests that',
             conclusion: 'The strategic implications indicate'
         },
-        'Creative': {
+        Creative: {
             introduction: 'Imagine a world where',
             transition: 'As we delve deeper into this narrative',
             conclusion: 'The story ultimately reveals'
         }
     };
-    
+
+    // Centralized citation templates
+    const citationTemplates = {
+        APA: `
+Smith, J. (2023). Academic Writing in the Digital Age. Journal of Modern Education, 45(2), 123-145.
+Johnson, M. & Brown, A. (2022). Research Methodologies for Students. Academic Press.
+        `.trim(),
+
+        MLA: `
+Smith, John. "Academic Writing in the Digital Age." Journal of Modern Education, vol. 45, no. 2, 2023, pp. 123-145.
+Johnson, Mary, and Anne Brown. Research Methodologies for Students. Academic Press, 2022.
+        `.trim(),
+
+        Harvard: `
+Smith, J., 2023. Academic Writing in the Digital Age. Journal of Modern Education, 45(2), pp.123-145.
+Johnson, M. & Brown, A., 2022. Research Methodologies for Students. Academic Press.
+        `.trim(),
+
+        Chicago: `
+Smith, John. 2023. "Academic Writing in the Digital Age." Journal of Modern Education 45, no. 2: 123-145.
+Johnson, Mary, and Anne Brown. 2022. Research Methodologies for Students. Academic Press.
+        `.trim(),
+
+        IEEE: `
+[1] J. Smith, "Academic Writing in the Digital Age," Journal of Modern Education, vol. 45, no. 2, pp. 123-145, 2023.
+[2] M. Johnson and A. Brown, Research Methodologies for Students. Academic Press, 2022.
+        `.trim()
+    };
+
     const selectedStyle = styleTemplates[style] || styleTemplates['Academic'];
-    
-    // Generate actual content using LLM service
+    const references = citationTemplates[citationStyle?.toUpperCase()] || citationTemplates.Chicago;
+
+    // Generate prompt for LLM
     const prompt = `Write a ${wordCount}-word ${style.toLowerCase()} ${tone.toLowerCase()} assignment on "${title}". ${description ? `Instructions: ${description}` : ''} Use ${citationStyle} citation style.`;
-    
+
     try {
+        // Try generating with LLM
         const generatedContent = await llmService.generateContent(prompt, {
             maxTokens: Math.ceil(wordCount * 1.5),
             temperature: 0.7,
-            style: style,
-            tone: tone
+            style,
+            tone
         });
-        
+
         return generatedContent;
     } catch (error) {
         console.error('Error generating content:', error);
+
         // Fallback to template-based content
         const fallbackContent = `
 # ${title}
 
 ## Introduction
-
 ${selectedStyle.introduction} the topic of "${title}" with detailed analysis and research-based insights.
 
 ## Main Body
-
 ${selectedStyle.transition} [Content will be generated based on your requirements]
 
 ### Key Points
-
 1. [Analysis point will be developed]
 2. [Supporting evidence will be provided]
 3. [Additional perspective will be added]
 4. [Implications will be discussed]
 
 ## Analysis
-
 [Detailed analysis will be provided based on research]
 
 ## Conclusion
-
 ${selectedStyle.conclusion} [Conclusion will be drawn from the analysis]
 
 ## References
-
-${citationStyle === 'APA' ? 
-`Smith, J. (2023). Academic Writing in the Digital Age. Journal of Modern Education, 45(2), 123-145.
-
-Johnson, M. & Brown, A. (2022). Research Methodologies for Students. Academic Press.` :
-citationStyle === 'MLA' ?
-`Smith, John. "Academic Writing in the Digital Age." Journal of Modern Education, vol. 45, no. 2, 2023, pp. 123-145.
-
-Johnson, Mary, and Anne Brown. Research Methodologies for Students. Academic Press, 2022.` :
-`Smith, J. (2023). Academic Writing in the Digital Age. Journal of Modern Education 45, no. 2: 123-145.
-
-Johnson, M., and A. Brown. Research Methodologies for Students. Academic Press, 2022.`}
+${references}
         `.trim();
-        
+
         return fallbackContent;
     }
 
-    // Simulate processing time
+    // Simulate slight delay
     await new Promise(resolve => setTimeout(resolve, 2000));
-    
-
 };
 
 // Plagiarism checking service
-const checkPlagiarism = async (content) => {
+const checkPlagiarism = async (content, options = {}) => {
     try {
         // Use the OriginalityDetection service for real plagiarism checking
-        const result = await originalityDetection.checkOriginality(content);
-        return result.originalityScore;
+        const result = await originalityDetection.checkOriginality(content, options);
+
+        return {
+            success: true,
+            originalityScore: result.originalityScore || 0,
+            plagiarismScore: result.plagiarismScore || (100 - (result.originalityScore || 0)),
+            sources: result.sources || [],
+            reportUrl: result.reportUrl || null,
+            checkedAt: new Date().toISOString()
+        };
     } catch (error) {
         console.error('Error checking plagiarism:', error);
-        // Fallback: return null to indicate plagiarism check failed
-        return null;
+
+        // Fallback structured response
+        return {
+            success: false,
+            originalityScore: null,
+            plagiarismScore: null,
+            sources: [],
+            reportUrl: null,
+            checkedAt: new Date().toISOString(),
+            error: error.message
+        };
     }
 };
 
 // Create new assignment
 // New endpoint for AI Writer tool content generation
 router.post('/generate', unifiedAuth, validateAssignmentInput, handleValidationErrors, asyncErrorHandler(async (req, res) => {
-    const { prompt, style, tone, wordCount, subject, additionalInstructions, citationStyle, requiresCitations, assignmentType = 'general', quality = 'standard' } = req.body;
+    const { prompt, style, tone, wordCount, subject, additionalInstructions, citationStyle, requiresCitations, 
+    assignmentType = 'general', 
+    quality = 'standard' } = req.body;
     const userId = req.user.id;
     const db = req.app.locals.db;
 
@@ -225,32 +263,28 @@ router.post('/generate', unifiedAuth, validateAssignmentInput, handleValidationE
             }
 
             let creditMultiplier = 1; 
-            if (quality.toLowerCase() === 'premium') 
-            { creditMultiplier = 2; 
+            if (quality.toLowerCase() === 'premium')  { 
+                creditMultiplier = 2; 
             }
             
             const adjustedWordCount = Math.ceil(wordCount * creditMultiplier);
             
-            const creditDeductionResult = await atomicCreditSystem.deductCreditsAtomic(
+            const creditDeductionResult = await ImprovedCreditSystem.deductCreditsAtomic(
                 req.user.id,
                 wordCount, // Pass requested word count directly
                 planValidation.userPlan.planType,
                 'writing'
             );
             
-            if (!creditDeductionResult.success) {
-                return res.status(402).json({
-                    success: false,
-                    error: 'Insufficient credits. Please top-up.',
-                    errorCode: 'INSUFFICIENT_CREDITS',
-                    details: {
-                        requiredCredits: creditDeductionResult.creditsDeducted || Math.ceil(wordCount / 5),
-                        currentBalance: creditDeductionResult.previousBalance || 0,
-                        shortfall: (creditDeductionResult.creditsDeducted || Math.ceil(wordCount / 5)) - (creditDeductionResult.previousBalance || 0)
-                    }
-                });
-            }
-            
+          if (!creditDeductionResult.success) { 
+              return res.status(402).json({ success: false, error: 'Insufficient credits. Please top-up.', errorCode: 'INSUFFICIENT_CREDITS', details: {
+      // Always trust ImprovedCreditSystem for requiredCredits
+             requiredCredits: creditDeductionResult.requiredCredits,
+             currentBalance: creditDeductionResult.previousBalance ?? 0,
+             shortfall: creditDeductionResult.requiredCredits - (creditDeductionResult.previousBalance ?? 0) }
+        });
+    }
+
             console.log(`Credits deducted successfully. Transaction ID: ${creditDeductionResult.transactionId}`);
 
             try {
@@ -306,7 +340,8 @@ router.post('/generate', unifiedAuth, validateAssignmentInput, handleValidationE
                     // Record usage after successful generation
                     await planValidatorInstance.recordUsage({
                         userId: req.user.id,
-                        wordsGenerated: citationData.processedContent ? citationData.processedContent.split(/\s+/).length : generationResult.wordCount,
+                        wordsGenerated: citationData.processedContent
+                            ? citationData.processedContent.split(/\s+/).length : generationResult.wordCount,
                         creditsUsed: creditDeductionResult.creditsDeducted,
                         generationType: 'assignment'
                     });
@@ -328,8 +363,8 @@ router.post('/generate', unifiedAuth, validateAssignmentInput, handleValidationE
                         citationCount: citationData.citationCount,
                         bibliography: citationData.bibliography,
                         generationTime: generationResult.generationTime,
-                         creditsUsed: creditDeductionResult.creditsDeducted,
-                         transactionId: creditDeductionResult.transactionId,
+                        creditsUsed: creditDeductionResult.creditsDeducted,
+                        transactionId: creditDeductionResult.transactionId,
                         usedSimilarContent: generationResult.usedSimilarContent,
                         similarContentId: generationResult.similarContentId,
                         optimizationApplied: generationResult.usedSimilarContent,
@@ -419,7 +454,7 @@ router.post('/generate', unifiedAuth, validateAssignmentInput, handleValidationE
                     
                     // Rollback credit deduction if generation fails
                     try {
-                        await atomicCreditSystem.rollbackTransaction(
+                        await ImprovedCreditSystem.rollbackTransaction(
                             req.user.id,
                             creditDeductionResult.transactionId,
                             creditDeductionResult.creditsDeducted,
@@ -443,278 +478,395 @@ router.post('/generate', unifiedAuth, validateAssignmentInput, handleValidationE
     }
 }));
 
-router.post('/create', unifiedAuth, validateAssignmentInput, handleValidationErrors, asyncErrorHandler(async (req, res) => {
-    const { title, description, wordCount, citationStyle } = req.body;
-    const db = req.app.locals.db;
+router.post(
+  '/create',
+  unifiedAuth,
+  validateAssignmentInput,
+  handleValidationErrors,
+  asyncErrorHandler(async (req, res) => {
+    const {
+      title,
+      description,
+      wordCount,
+      citationStyle,
+      assignmentType = 'general',
+      quality = 'standard'
+    } = req.body;
+
     const userId = req.user.id;
 
+    // ---- Validation checks ----
     if (!title || !wordCount || !citationStyle) {
-        return res.status(400).json({ error: 'Title, word count, and citation style are required' });
+      return res
+        .status(400)
+        .json({ error: 'Title, word count, and citation style are required' });
     }
 
     if (wordCount < 100 || wordCount > 5000) {
-        return res.status(400).json({ error: 'Word count must be between 100 and 5000' });
+      return res
+        .status(400)
+        .json({ error: 'Word count must be between 100 and 5000' });
     }
 
-    // Calculate credits needed (1 credit = 10 words)
-    const creditsNeeded = Math.ceil(wordCount / 10);
+    if (!['general', 'academic'].includes(assignmentType.toLowerCase())) {
+      return res.status(400).json({
+        error: 'Invalid assignment type. Must be "general" or "academic".'
+      });
+    }
 
+    if (!['standard', 'premium'].includes(quality.toLowerCase())) {
+      return res.status(400).json({
+        error: 'Invalid quality. Must be "standard" or "premium".'
+      });
+    }
+
+    // ---- Credit calculation (ImprovedCreditSystem) ----
+    let creditMultiplier = quality.toLowerCase() === 'premium' ? 2 : 1;
+    let adjustedWordCount = Math.ceil(wordCount * creditMultiplier);
+
+    let creditDeductionResult;
     try {
-        // Check user credits
-        db.get('SELECT credits FROM users WHERE id = ?', [userId], async (err, user) => {
-            if (err) {
-                console.error('Database error:', err);
-                return res.status(500).json({ error: 'Database error' });
-            }
+      creditDeductionResult = await improvedCreditSystem.deductCreditsAtomic(
+        userId,
+        adjustedWordCount,
+        'writing' // toolType = writing
+      );
 
-            if (!user || user.credits < creditsNeeded) {
-                return res.status(400).json({ 
-                    error: 'Insufficient credits',
-                    required: creditsNeeded,
-                    available: user ? user.credits : 0
-                });
-            }
-
-            try {
-                // Create assignment record
-                db.run(
-                    'INSERT INTO assignments (user_id, title, description, word_count, citation_style, status, credits_used) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    [userId, title, description, wordCount, citationStyle, 'generating', creditsNeeded],
-                    async function(err) {
-                        if (err) {
-                            console.error('Database error:', err);
-                            return res.status(500).json({ error: 'Error creating assignment' });
-                        }
-
-                        const assignmentId = this.lastID;
-
-                        // Deduct credits
-                        db.run(
-                            'UPDATE users SET credits = credits - ? WHERE id = ?',
-                            [creditsNeeded, userId],
-                            (err) => {
-                                if (err) {
-                                    console.error('Error updating credits:', err);
-                                }
-                            }
-                        );
-
-                        res.json({
-                            message: 'Assignment creation started',
-                            assignmentId: assignmentId,
-                            creditsUsed: creditsNeeded
-                        });
-
-                        // Generate content asynchronously
-                        try {
-                            const content = await generateAssignmentContent(title, description, wordCount, citationStyle);
-                            const originalityScore = await checkPlagiarism(content);
-
-                            // Update assignment with generated content
-                            db.run(
-                                'UPDATE assignments SET content = ?, originality_score = ?, status = ? WHERE id = ?',
-                                [content, originalityScore, 'completed', assignmentId],
-                                (err) => {
-                                    if (err) {
-                                        console.error('Error updating assignment:', err);
-                                        db.run(
-                                            'UPDATE assignments SET status = ? WHERE id = ?',
-                                            ['failed', assignmentId]
-                                        );
-                                    } else {
-                                        console.log(`Assignment ${assignmentId} completed successfully`);
-                                    }
-                                }
-                            );
-                        } catch (error) {
-                            console.error('Error generating content:', error);
-                            db.run(
-                                'UPDATE assignments SET status = ? WHERE id = ?',
-                                ['failed', assignmentId]
-                            );
-                        }
-                    }
-                );
-            } catch (error) {
-                console.error('Assignment creation error:', error);
-                res.status(500).json({ error: 'Internal server error' });
-            }
+      if (!creditDeductionResult.success) {
+        return res.status(402).json({
+          success: false,
+          error: 'Insufficient credits. Please top-up.',
+          errorCode: 'INSUFFICIENT_CREDITS',
+          details: {
+            requiredCredits: creditDeductionResult.requiredCredits,
+            currentBalance: creditDeductionResult.previousBalance ?? 0,
+            shortfall:
+              creditDeductionResult.requiredCredits -
+              (creditDeductionResult.previousBalance ?? 0)
+          }
         });
-    } catch (error) {
-        console.error('Assignment creation error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+      }
+    } catch (err) {
+      console.error('Credit deduction failed:', err);
+      return res
+        .status(500)
+        .json({ error: 'Internal server error during credit deduction' });
     }
-}));
+
+}
+
+ try {
+             
+  // Create assignment ID
+  const assignmentId = `assign_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+  // Initial assignment record in Firestore
+  const assignmentData = {
+    id: assignmentId,
+    userId,
+    title,
+    description,
+    wordCount,
+    citationStyle,
+    assignmentType,
+    quality,
+    status: 'generating',
+    creditsUsed: creditDeductionResult.creditsDeducted,
+    createdAt: new Date(),
+    updatedAt: new Date()
+  };
+
+  await admin.firestore().collection('assignments').doc(assignmentId).set(assignmentData);
+
+  // Respond early to client (async generation continues later)
+  res.json({
+    message: 'Assignment creation started',
+    assignmentId,
+    creditsUsed: creditDeductionResult.creditsDeducted
+  });
+
+  // ---- Generate content asynchronously ----
+  try {
+    const content = await generateAssignmentContent(title, description, wordCount, citationStyle);
+    const originalityScore = await checkPlagiarism(content);
+
+    // Update assignment with final results
+    await admin.firestore().collection('assignments').doc(assignmentId).update({
+      content,
+      originalityScore,
+      status: 'completed',
+      updatedAt: new Date()
+    });
+
+    console.log(`Assignment ${assignmentId} completed successfully`);
+  } catch (genError) {
+    console.error('Error generating content:', genError);
+
+    // Rollback credits if generation fails
+    try {
+      await improvedCreditSystem.rollbackTransaction(
+        userId,
+        creditDeductionResult.transactionId,
+        creditDeductionResult.creditsDeducted,
+        creditDeductionResult.wordsAllocated
+      );
+      console.log(`Credits rolled back for assignment ${assignmentId}`);
+    } catch (rbErr) {
+      console.error('Rollback failed:', rbErr);
+    }
+
+    await admin.firestore().collection('assignments').doc(assignmentId).update({
+      status: 'failed',
+      updatedAt: new Date()
+    });
+  }
+} catch (err) {
+  console.error('Assignment creation error:', err);
+  return res.status(500).json({ error: 'Error creating assignment' });
+}
 
 // Get assignment by ID
 router.get('/:id', unifiedAuth, asyncErrorHandler(async (req, res) => {
-    const assignmentId = req.params.id;
-    const userId = req.user.id;
-    const db = req.app.locals.db;
+  const assignmentId = req.params.id;
+  const userId = req.user.id;
 
-    db.get(
-        'SELECT * FROM assignments WHERE id = ? AND user_id = ?',
-        [assignmentId, userId],
-        (err, assignment) => {
-            if (err) {
-                console.error('Database error:', err);
-                return res.status(500).json({ error: 'Database error' });
-            }
+  try {
+    const docRef = admin.firestore().collection('assignments').doc(assignmentId);
+    const doc = await docRef.get();
 
-            if (!assignment) {
-                return res.status(404).json({ error: 'Assignment not found' });
-            }
+    if (!doc.exists) {
+      return res.status(404).json({ error: 'Assignment not found' });
+    }
 
-            res.json({
-                id: assignment.id,
-                title: assignment.title,
-                description: assignment.description,
-                wordCount: assignment.word_count,
-                citationStyle: assignment.citation_style,
-                content: assignment.content,
-                originalityScore: assignment.originality_score,
-                status: assignment.status,
-                creditsUsed: assignment.credits_used,
-                createdAt: assignment.created_at
-            });
-        }
-    );
+    const assignment = doc.data();
+
+    // Security: make sure this assignment belongs to the requesting user
+    if (assignment.userId !== userId) {
+      return res.status(403).json({ error: 'Unauthorized access to this assignment' });
+    }
+
+    res.json({
+      id: assignment.id,
+      title: assignment.title,
+      description: assignment.description,
+      wordCount: assignment.wordCount,
+      citationStyle: assignment.citationStyle,
+      content: assignment.content || null,
+      originalityScore: assignment.originalityScore || null,
+      status: assignment.status,
+      creditsUsed: assignment.creditsUsed,
+      createdAt: assignment.createdAt,
+      updatedAt: assignment.updatedAt || null
+    });
+  } catch (err) {
+    console.error('Error fetching assignment:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
 }));
 
 // Get user's assignment history
 router.get('/', unifiedAuth, asyncErrorHandler(async (req, res) => {
-    const userId = req.user.userId;
-    const db = req.app.locals.db;
+  const userId = req.user.id; // use `id`, not `userId`, since decode sets req.user.id
 
-    db.all(
-        'SELECT id, title, word_count, citation_style, status, originality_score, credits_used, created_at FROM assignments WHERE user_id = ? ORDER BY created_at DESC',
-        [userId],
-        (err, assignments) => {
-            if (err) {
-                console.error('Database error:', err);
-                return res.status(500).json({ error: 'Database error' });
-            }
+  try {
+    const snapshot = await admin
+      .firestore()
+      .collection('assignments')
+      .where('userId', '==', userId)
+      .orderBy('createdAt', 'desc')
+      .get();
 
-            const formattedAssignments = assignments.map(assignment => ({
-                id: assignment.id,
-                title: assignment.title,
-                wordCount: assignment.word_count,
-                citationStyle: assignment.citation_style,
-                status: assignment.status,
-                originalityScore: assignment.originality_score,
-                creditsUsed: assignment.credits_used,
-                createdAt: assignment.created_at
-            }));
+    if (snapshot.empty) {
+      return res.json([]); // no assignments yet
+    }
 
-            res.json(formattedAssignments);
-        }
-    );
+    const formattedAssignments = snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        title: data.title,
+        wordCount: data.wordCount,
+        citationStyle: data.citationStyle,
+        status: data.status,
+        originalityScore: data.originalityScore || null,
+        creditsUsed: data.creditsUsed,
+        createdAt: data.createdAt,
+      };
+    });
+
+    res.json(formattedAssignments);
+  } catch (err) {
+    console.error('Error fetching assignment history:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
 }));
 
-// Download assignment as text file
+const { Document, Packer, Paragraph } = require('docx');
+
+// Download assignment as a Word document
 router.get('/:id/download', unifiedAuth, asyncErrorHandler(async (req, res) => {
-    const assignmentId = req.params.id;
-    const userId = req.user.userId;
-    const db = req.app.locals.db;
+  const assignmentId = req.params.id;
+  const userId = req.user.id;
 
-    db.get(
-        'SELECT title, content FROM assignments WHERE id = ? AND user_id = ? AND status = "completed"',
-        [assignmentId, userId],
-        async (err, assignment) => {
-            if (err) {
-                console.error('Database error:', err);
-                return res.status(500).json({ error: 'Database error' });
-            }
+  try {
+    const docRef = admin.firestore().collection('assignments').doc(assignmentId);
+    const docSnap = await docRef.get();
 
-            if (!assignment) {
-                return res.status(404).json({ error: 'Assignment not found or not completed' });
-            }
+    if (!docSnap.exists) {
+      return res.status(404).json({ error: 'Assignment not found' });
+    }
 
-            try {
-                const filename = `${assignment.title.replace(/[^a-zA-Z0-9]/g, '_')}.txt`;
-                
-                res.setHeader('Content-Type', 'text/plain');
-                res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-                res.send(assignment.content);
-            } catch (error) {
-                console.error('Download error:', error);
-                res.status(500).json({ error: 'Error generating download' });
-            }
-        }
-    );
+    const assignment = docSnap.data();
+
+    if (assignment.userId !== userId || assignment.status !== 'completed') {
+      return res.status(404).json({ error: 'Assignment not found or not completed' });
+    }
+
+    // Create Word document
+    const doc = new Document({
+      sections: [
+        {
+          properties: {},
+          children: [
+            new Paragraph({
+              text: assignment.title || "Assignment",
+              heading: "Heading1",
+            }),
+            new Paragraph({
+              text: assignment.content || "No content available",
+            }),
+          ],
+        },
+      ],
+    });
+
+    const buffer = await Packer.toBuffer(doc);
+
+    const filename = `${assignment.title.replace(/[^a-zA-Z0-9]/g, '_')}.docx`;
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
+
+  } catch (error) {
+    console.error('Download error:', error);
+    res.status(500).json({ error: 'Error generating Word file' });
+  }
 }));
-
-// Draft Management Endpoints
 
 // Create new draft
-router.post('/drafts', unifiedAuth, validateAssignmentInput, handleValidationErrors, asyncErrorHandler(async (req, res) => {
+router.post(
+  '/drafts',
+  unifiedAuth,
+  validateAssignmentInput,
+  handleValidationErrors,
+  asyncErrorHandler(async (req, res) => {
     try {
-        const { title, content, prompt, style, tone, targetWordCount } = req.body;
-        const userId = req.user.id;
+      const { title, content, prompt, style, tone, targetWordCount } = req.body;
+      const userId = req.user.id;
 
-        if (!title || title.trim().length === 0) {
-            return res.status(400).json({ error: 'Title is required' });
-        }
+      if (!title || title.trim().length === 0) {
+        return res.status(400).json({ error: 'Title is required' });
+      }
 
-        const draft = await draftManager.createDraft({
-            userId,
-            title: title.trim(),
-            content: content || '',
-            prompt: prompt || '',
-            style: style || 'Academic',
-            tone: tone || 'Formal',
-            targetWordCount: targetWordCount || 0
-        }, db);
+      const draftId = `draft_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-        res.status(201).json({
-            success: true,
-            draft: draft
-        });
+      const draftData = {
+        id: draftId,
+        userId,
+        title: title.trim(),
+        content: content || '',
+        prompt: prompt || '',
+        style: style || 'Academic',
+        tone: tone || 'Formal',
+        targetWordCount: targetWordCount || 0,
+        status: 'in-progress',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      // Save draft to Firestore
+      await admin.firestore().collection('drafts').doc(draftId).set(draftData);
+
+      res.status(201).json({
+        success: true,
+        draft: draftData,
+      });
     } catch (error) {
-        console.error('Error creating draft:', error);
-        res.status(500).json({ error: 'Failed to create draft' });
+      console.error('Error creating draft:', error);
+      res.status(500).json({ error: 'Failed to create draft' });
     }
+  })
 }));
 
 // Get user's drafts
-router.get('/drafts', unifiedAuth, asyncErrorHandler(async (req, res) => {
+router.get(
+  '/drafts',
+  unifiedAuth,
+  asyncErrorHandler(async (req, res) => {
     try {
-        const userId = req.user.id;
-        const { status, limit, offset, orderBy, orderDirection } = req.query;
+      const userId = req.user.id;
+      const { status, limit, orderBy, orderDirection } = req.query;
 
-        const drafts = await draftManager.getUserDrafts(userId, db, {
-            status,
-            limit: parseInt(limit) || 50,
-            offset: parseInt(offset) || 0,
-            orderBy: orderBy || 'updated_at',
-            orderDirection: orderDirection || 'DESC'
-        });
+      let query = admin.firestore()
+        .collection('drafts')
+        .where('userId', '==', userId);
 
-        res.json({
-            success: true,
-            drafts: drafts
-        });
+      // Optional status filter
+      if (status) {
+        query = query.where('status', '==', status);
+      }
+
+      // Ordering
+      if (orderBy) {
+        query = query.orderBy(orderBy, orderDirection === 'ASC' ? 'asc' : 'desc');
+      } else {
+        query = query.orderBy('updatedAt', 'desc'); // default
+      }
+
+      // Limit
+      const draftLimit = parseInt(limit) || 50;
+      query = query.limit(draftLimit);
+
+      const snapshot = await query.get();
+
+      const drafts = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      });
+
+      res.json({
+        success: true,
+        drafts,
+      });
     } catch (error) {
-        console.error('Error fetching drafts:', error);
-        res.status(500).json({ error: 'Failed to fetch drafts' });
+      console.error('Error fetching drafts:', error);
+      res.status(500).json({ error: 'Failed to fetch drafts' });
     }
+  })
 }));
+
 
 // Get specific draft
 router.get('/drafts/:id', unifiedAuth, asyncErrorHandler(async (req, res) => {
     try {
-        const draftId = parseInt(req.params.id);
+        const draftId = req.params.id; // Firestore uses string IDs, no need for parseInt
         const userId = req.user.id;
 
-        const draft = await draftManager.getDraft(draftId, userId, db);
+        // Firestore path: drafts collection, doc(draftId)
+        const draftRef = db.collection('drafts').doc(draftId);
+        const draftSnap = await draftRef.get();
 
-        if (!draft) {
+        if (!draftSnap.exists || draftSnap.data().userId !== userId) {
             return res.status(404).json({ error: 'Draft not found' });
         }
 
         res.json({
             success: true,
-            draft: draft
+            draft: {
+                id: draftSnap.id,
+                ...draftSnap.data()
+            }
         });
     } catch (error) {
         console.error('Error fetching draft:', error);
@@ -725,13 +877,15 @@ router.get('/drafts/:id', unifiedAuth, asyncErrorHandler(async (req, res) => {
 // Update draft
 router.put('/drafts/:id', unifiedAuth, validateAssignmentInput, handleValidationErrors, asyncErrorHandler(async (req, res) => {
     try {
-        const draftId = parseInt(req.params.id);
+        const draftId = req.params.id; // Firestore doc IDs are strings
         const userId = req.user.id;
         const { title, content, prompt, style, tone, targetWordCount, status, createVersion } = req.body;
 
+        const draftRef = db.collection('drafts').doc(draftId);
+        const draftSnap = await draftRef.get();
+
         // Verify ownership
-        const existingDraft = await draftManager.getDraft(draftId, userId, db);
-        if (!existingDraft) {
+        if (!draftSnap.exists || draftSnap.data().userId !== userId) {
             return res.status(404).json({ error: 'Draft not found' });
         }
 
@@ -743,17 +897,25 @@ router.put('/drafts/:id', unifiedAuth, validateAssignmentInput, handleValidation
         if (tone !== undefined) updateData.tone = tone;
         if (targetWordCount !== undefined) updateData.targetWordCount = targetWordCount;
         if (status !== undefined) updateData.status = status;
+        updateData.updatedAt = new Date();
 
-        const result = await draftManager.updateDraft(
-            draftId, 
-            updateData, 
-            db, 
-            createVersion === true
-        );
+        // Save update
+        await draftRef.update(updateData);
+
+        // If versioning is enabled, save a copy into "draftVersions"
+        if (createVersion === true) {
+            await db.collection('draftVersions').add({
+                draftId,
+                userId,
+                versionData: updateData,
+                createdAt: new Date()
+            });
+        }
 
         res.json({
             success: true,
-            result: result
+            draftId,
+            updatedFields: updateData
         });
     } catch (error) {
         console.error('Error updating draft:', error);
@@ -764,20 +926,32 @@ router.put('/drafts/:id', unifiedAuth, validateAssignmentInput, handleValidation
 // Get draft versions
 router.get('/drafts/:id/versions', unifiedAuth, asyncErrorHandler(async (req, res) => {
     try {
-        const draftId = parseInt(req.params.id);
+        const draftId = req.params.id; // Firestore uses string IDs
         const userId = req.user.id;
 
         // Verify ownership
-        const draft = await draftManager.getDraft(draftId, userId, db);
-        if (!draft) {
+        const draftRef = db.collection('drafts').doc(draftId);
+        const draftSnap = await draftRef.get();
+
+        if (!draftSnap.exists || draftSnap.data().userId !== userId) {
             return res.status(404).json({ error: 'Draft not found' });
         }
 
-        const versions = await draftManager.getDraftVersions(draftId, db);
+        // Fetch all versions of this draft
+        const versionsSnap = await db.collection('draftVersions')
+            .where('draftId', '==', draftId)
+            .where('userId', '==', userId)
+            .orderBy('createdAt', 'desc')
+            .get();
+
+        const versions = versionsSnap.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
 
         res.json({
             success: true,
-            versions: versions
+            versions
         });
     } catch (error) {
         console.error('Error fetching draft versions:', error);
@@ -788,21 +962,46 @@ router.get('/drafts/:id/versions', unifiedAuth, asyncErrorHandler(async (req, re
 // Restore draft version
 router.post('/drafts/:id/restore/:version', unifiedAuth, asyncErrorHandler(async (req, res) => {
     try {
-        const draftId = parseInt(req.params.id);
-        const versionNumber = parseInt(req.params.version);
+        const draftId = req.params.id;  // Firestore uses string IDs
+        const versionId = req.params.version; // version doc ID (string)
         const userId = req.user.id;
 
-        // Verify ownership
-        const draft = await draftManager.getDraft(draftId, userId, db);
-        if (!draft) {
+        // Verify ownership of draft
+        const draftRef = db.collection('drafts').doc(draftId);
+        const draftSnap = await draftRef.get();
+
+        if (!draftSnap.exists || draftSnap.data().userId !== userId) {
             return res.status(404).json({ error: 'Draft not found' });
         }
 
-        const result = await draftManager.restoreDraftVersion(draftId, versionNumber, db);
+        // Get the version document
+        const versionRef = db.collection('draftVersions').doc(versionId);
+        const versionSnap = await versionRef.get();
+
+        if (!versionSnap.exists || versionSnap.data().draftId !== draftId || versionSnap.data().userId !== userId) {
+            return res.status(404).json({ error: 'Draft version not found' });
+        }
+
+        const versionData = versionSnap.data();
+
+        // Restore the version into the main draft
+        await draftRef.update({
+            title: versionData.title,
+            content: versionData.content,
+            prompt: versionData.prompt,
+            style: versionData.style,
+            tone: versionData.tone,
+            targetWordCount: versionData.targetWordCount,
+            updatedAt: new Date()
+        });
 
         res.json({
             success: true,
-            result: result
+            restoredTo: {
+                draftId,
+                versionId,
+                ...versionData
+            }
         });
     } catch (error) {
         console.error('Error restoring draft version:', error);
@@ -813,21 +1012,32 @@ router.post('/drafts/:id/restore/:version', unifiedAuth, asyncErrorHandler(async
 // Create auto-save session
 router.post('/drafts/:id/autosave-session', unifiedAuth, asyncErrorHandler(async (req, res) => {
     try {
-        const draftId = parseInt(req.params.id);
+        const draftId = req.params.id; // Firestore doc ID is string
         const userId = req.user.id;
 
         // Verify ownership
-        const draft = await draftManager.getDraft(draftId, userId, db);
-        if (!draft) {
+        const draftRef = db.collection('drafts').doc(draftId);
+        const draftSnap = await draftRef.get();
+
+        if (!draftSnap.exists || draftSnap.data().userId !== userId) {
             return res.status(404).json({ error: 'Draft not found' });
         }
 
-        const sessionToken = await draftManager.createAutoSaveSession(draftId, db);
+        // Generate a session token (UUID or random string)
+        const sessionToken = `autosave_${userId}_${draftId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        // Store session in a dedicated Firestore collection
+        await db.collection('draftAutoSaveSessions').doc(sessionToken).set({
+            draftId,
+            userId,
+            createdAt: new Date(),
+            expiresAt: new Date(Date.now() + 30 * 60 * 1000) // 30 mins validity
+        });
 
         res.json({
             success: true,
-            sessionToken: sessionToken,
-            autoSaveInterval: draftManager.autoSaveInterval
+            sessionToken,
+            autoSaveInterval: 60, // e.g. client should auto-save every 60s
         });
     } catch (error) {
         console.error('Error creating auto-save session:', error);
@@ -836,19 +1046,46 @@ router.post('/drafts/:id/autosave-session', unifiedAuth, asyncErrorHandler(async
 }));
 
 // Auto-save draft content
-router.post('/drafts/autosave', asyncErrorHandler(async (req, res) => {
+router.post('/drafts/autosave', unifiedAuth, asyncErrorHandler(async (req, res) => {
     try {
         const { sessionToken, content } = req.body;
+        const userId = req.user.id;
 
         if (!sessionToken || content === undefined) {
             return res.status(400).json({ error: 'Session token and content are required' });
         }
 
-        const result = await draftManager.autoSaveDraft(sessionToken, content, db);
+        // Lookup session
+        const sessionRef = db.collection('draftAutoSaveSessions').doc(sessionToken);
+        const sessionSnap = await sessionRef.get();
+
+        if (!sessionSnap.exists) {
+            return res.status(404).json({ error: 'Invalid or expired session token' });
+        }
+
+        const session = sessionSnap.data();
+
+        // Validate session ownership + expiry
+        if (session.userId !== userId) {
+            return res.status(403).json({ error: 'Unauthorized session' });
+        }
+        if (session.expiresAt.toDate() < new Date()) {
+            return res.status(410).json({ error: 'Session expired' });
+        }
+
+        // Update draft in Firestore
+        const draftRef = db.collection('drafts').doc(session.draftId);
+        await draftRef.update({
+            content,
+            updatedAt: new Date(),
+            status: 'autosaved'
+        });
 
         res.json({
             success: true,
-            result: result
+            message: 'Draft autosaved successfully',
+            draftId: session.draftId,
+            content
         });
     } catch (error) {
         console.error('Error auto-saving draft:', error);
@@ -859,14 +1096,28 @@ router.post('/drafts/autosave', asyncErrorHandler(async (req, res) => {
 // Delete draft
 router.delete('/drafts/:id', unifiedAuth, asyncErrorHandler(async (req, res) => {
     try {
-        const draftId = parseInt(req.params.id);
+        const draftId = req.params.id; // Firestore uses string IDs, no parseInt
         const userId = req.user.id;
 
-        const result = await draftManager.deleteDraft(draftId, userId, db);
+        const draftRef = db.collection('drafts').doc(draftId);
+        const draftSnap = await draftRef.get();
+
+        if (!draftSnap.exists) {
+            return res.status(404).json({ error: 'Draft not found' });
+        }
+
+        const draft = draftSnap.data();
+
+        // Verify ownership
+        if (draft.userId !== userId) {
+            return res.status(403).json({ error: 'Unauthorized to delete this draft' });
+        }
+
+        await draftRef.delete();
 
         res.json({
             success: true,
-            result: result
+            message: `Draft ${draftId} deleted successfully`
         });
     } catch (error) {
         console.error('Error deleting draft:', error);
@@ -878,12 +1129,57 @@ router.delete('/drafts/:id', unifiedAuth, asyncErrorHandler(async (req, res) => 
 router.get('/drafts-stats', unifiedAuth, asyncErrorHandler(async (req, res) => {
     try {
         const userId = req.user.id;
-        const stats = await draftManager.getDraftStatistics(userId, db);
+
+        // Fetch all drafts for the user
+        const draftsSnap = await db.collection('drafts')
+            .where('userId', '==', userId)
+            .get();
+
+        if (draftsSnap.empty) {
+            return res.json({
+                success: true,
+                statistics: {
+                    totalDrafts: 0,
+                    completedDrafts: 0,
+                    inProgressDrafts: 0,
+                    lastUpdated: null
+                }
+            });
+        }
+
+        let totalDrafts = 0;
+        let completedDrafts = 0;
+        let inProgressDrafts = 0;
+        let lastUpdated = null;
+
+        draftsSnap.forEach(doc => {
+            const draft = doc.data();
+            totalDrafts++;
+
+            if (draft.status === 'completed') {
+                completedDrafts++;
+            } else {
+                inProgressDrafts++;
+            }
+
+            if (draft.updatedAt) {
+                const updated = draft.updatedAt.toDate ? draft.updatedAt.toDate() : new Date(draft.updatedAt);
+                if (!lastUpdated || updated > lastUpdated) {
+                    lastUpdated = updated;
+                }
+            }
+        });
 
         res.json({
             success: true,
-            statistics: stats
+            statistics: {
+                totalDrafts,
+                completedDrafts,
+                inProgressDrafts,
+                lastUpdated
+            }
         });
+
     } catch (error) {
         console.error('Error fetching draft statistics:', error);
         res.status(500).json({ error: 'Failed to fetch draft statistics' });
@@ -1062,115 +1358,89 @@ function getStatusCodeForValidationError(errorCode) {
     return statusCodes[errorCode] || 400; // Default to Bad Request
 }
 
-// Usage tracking endpoints
+// Usage Tracking Endpoints
 
 /**
  * Get current monthly usage for authenticated user
  */
-router.get('/usage/monthly', authenticateToken, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        const monthlyUsage = await planValidatorInstance.getMonthlyUsage(userId);
-        const freemiumLimits = planValidatorInstance.getFreemiumLimits();
-        
-        res.json({
-            success: true,
-            usage: monthlyUsage,
-            limits: freemiumLimits,
-            remainingWords: Math.max(0, freemiumLimits.monthlyWordLimit - monthlyUsage.wordsGenerated),
-            remainingCredits: Math.max(0, freemiumLimits.monthlyCreditLimit - monthlyUsage.creditsUsed),
-            utilizationPercentage: {
-                words: Math.round((monthlyUsage.wordsGenerated / freemiumLimits.monthlyWordLimit) * 100),
-                credits: Math.round((monthlyUsage.creditsUsed / freemiumLimits.monthlyCreditLimit) * 100)
-            }
-        });
-    } catch (error) {
-        console.error('Error getting monthly usage:', error);
-        res.status(500).json({
-            error: 'Failed to retrieve monthly usage'
-        });
+router.get('/usage/monthly', authenticateToken, asyncErrorHandler(async (req, res) => {
+    const userId = req.user.id; // ✅ unified to .id
+    const monthlyUsage = await planValidatorInstance.getMonthlyUsage(userId);
+    const freemiumLimits = planValidatorInstance.getFreemiumLimits();
+
+    if (!monthlyUsage) {
+        return res.status(404).json({ error: 'No usage data found for this month' });
     }
-});
+
+    res.json({
+        success: true,
+        usage: monthlyUsage,
+        limits: freemiumLimits,
+        remainingWords: Math.max(0, freemiumLimits.monthlyWordLimit - monthlyUsage.wordsGenerated),
+        remainingCredits: Math.max(0, freemiumLimits.monthlyCreditLimit - monthlyUsage.creditsUsed),
+        utilizationPercentage: {
+            words: Math.round((monthlyUsage.wordsGenerated / freemiumLimits.monthlyWordLimit) * 100),
+            credits: Math.round((monthlyUsage.creditsUsed / freemiumLimits.monthlyCreditLimit) * 100)
+        },
+        nextResetDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1) // start of next month
+    });
+}));
 
 /**
  * Get usage history for authenticated user
  */
-router.get('/usage/history', authenticateToken, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        const months = parseInt(req.query.months) || 6;
-        
-        if (months < 1 || months > 12) {
-            return res.status(400).json({
-                error: 'Months parameter must be between 1 and 12'
-            });
-        }
-        
-        const usageHistory = await planValidatorInstance.getUserUsageHistory(userId, months);
-        
-        res.json({
-            success: true,
-            history: usageHistory,
-            totalMonths: months
-        });
-    } catch (error) {
-        console.error('Error getting usage history:', error);
-        res.status(500).json({
-            error: 'Failed to retrieve usage history'
-        });
+router.get('/usage/history', authenticateToken, asyncErrorHandler(async (req, res) => {
+    const userId = req.user.id;
+    const months = parseInt(req.query.months) || 6;
+
+    if (months < 1 || months > 12) {
+        return res.status(400).json({ error: 'Months parameter must be between 1 and 12' });
     }
-});
+
+    const usageHistory = await planValidatorInstance.getUserUsageHistory(userId, months);
+
+    res.json({
+        success: true,
+        history: usageHistory || [],
+        totalMonths: months
+    });
+}));
 
 /**
  * Get usage statistics and plan information
  */
-router.get('/usage/stats', authenticateToken, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        
-        // Get current month usage
-        const monthlyUsage = await planValidatorInstance.getMonthlyUsage(userId);
-        
-        // Get user plan
-        const userPlan = await planValidatorInstance.getUserPlan(userId);
-        
-        // Get freemium limits
-        const limits = planValidatorInstance.getFreemiumLimits();
-        
-        // Calculate statistics
-        const stats = {
-            currentMonth: {
-                wordsGenerated: monthlyUsage.wordsGenerated,
-                creditsUsed: monthlyUsage.creditsUsed,
-                requestCount: monthlyUsage.requestCount
-            },
-            plan: {
-                type: userPlan.planType,
-                name: userPlan.planName || userPlan.planType.charAt(0).toUpperCase() + userPlan.planType.slice(1),
-                isFreemium: userPlan.planType === 'freemium'
-            },
-            limits: userPlan.planType === 'freemium' ? limits : null,
-            remaining: userPlan.planType === 'freemium' ? {
-                words: Math.max(0, limits.monthlyWordLimit - monthlyUsage.wordsGenerated),
-                credits: Math.max(0, limits.monthlyCreditLimit - monthlyUsage.creditsUsed)
-            } : null,
-            utilization: userPlan.planType === 'freemium' ? {
-                words: Math.round((monthlyUsage.wordsGenerated / limits.monthlyWordLimit) * 100),
-                credits: Math.round((monthlyUsage.creditsUsed / limits.monthlyCreditLimit) * 100)
-            } : null,
-            upgradeOptions: planValidatorInstance.getUpgradeOptions(userPlan.planType)
-        };
-        
-        res.json({
-            success: true,
-            stats
-        });
-    } catch (error) {
-        console.error('Error getting usage stats:', error);
-        res.status(500).json({
-            error: 'Failed to retrieve usage statistics'
-        });
+router.get('/usage/stats', authenticateToken, asyncErrorHandler(async (req, res) => {
+    const userId = req.user.id;
+
+    const monthlyUsage = await planValidatorInstance.getMonthlyUsage(userId);
+    const userPlan = await planValidatorInstance.getUserPlan(userId);
+    const limits = planValidatorInstance.getFreemiumLimits();
+
+    if (!userPlan) {
+        return res.status(404).json({ error: 'User plan not found' });
     }
-});
+
+    const stats = {
+        currentMonth: monthlyUsage || { wordsGenerated: 0, creditsUsed: 0, requestCount: 0 },
+        plan: {
+            type: userPlan.planType,
+            name: userPlan.planName || (userPlan.planType.charAt(0).toUpperCase() + userPlan.planType.slice(1)),
+            isFreemium: userPlan.planType === 'freemium'
+        },
+        limits: userPlan.planType === 'freemium' ? limits : null,
+        remaining: userPlan.planType === 'freemium' ? {
+            words: Math.max(0, limits.monthlyWordLimit - (monthlyUsage?.wordsGenerated || 0)),
+            credits: Math.max(0, limits.monthlyCreditLimit - (monthlyUsage?.creditsUsed || 0))
+        } : null,
+        utilization: userPlan.planType === 'freemium' ? {
+            words: Math.round(((monthlyUsage?.wordsGenerated || 0) / limits.monthlyWordLimit) * 100),
+            credits: Math.round(((monthlyUsage?.creditsUsed || 0) / limits.monthlyCreditLimit) * 100)
+        } : null,
+        nextResetDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1),
+        upgradeOptions: planValidatorInstance.getUpgradeOptions(userPlan.planType)
+    };
+
+    res.json({ success: true, stats });
+}));
 
 module.exports = router;
