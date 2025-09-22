@@ -22,10 +22,14 @@ class PromptEngineerService {
         this.creditSystem = new ImprovedCreditSystem();
         this.planValidator = new PlanValidator();
 
+        // Service-level credit ratios (internal logic)
         this.CREDIT_RATIOS = {
-            input: 20,
-            output: 10
+            input: 20,   // 1 credit per 20 input words
+            output: 10   // 1 credit per 10 output words
         };
+
+        // Must match ImprovedCreditSystem.CREDIT_RATIOS.promptEngineer
+        this.PROMPT_ENGINEER_RATIO = 5; 
     }
 
     calculateCreditsNeeded(inputWords, outputWords) {
@@ -105,12 +109,17 @@ Prompt to analyze:
             }
 
             let creditTransaction = null;
+            let billingWords = 0;
+
             if (limitCheck.creditsNeeded > 0) {
+                billingWords = (limitCheck.creditsNeeded || 0) * this.PROMPT_ENGINEER_RATIO;
+
                 creditTransaction = await this.creditSystem.deductCreditsAtomic(
                     userId,
-                    limitCheck.creditsNeeded,
+                    billingWords,                // ✅ words, not credits
                     limitCheck.userPlan,
-                    'prompt'
+                    'promptEngineer',
+                    'deduction'
                 );
 
                 if (!creditTransaction.success) {
@@ -163,6 +172,7 @@ Return JSON:
                     inputWords,
                     outputWords: actualOutputWords,
                     creditsUsed: limitCheck.creditsNeeded || 0,
+                    billingWords,
                     timestamp: admin.firestore.FieldValue.serverTimestamp()
                 });
 
@@ -171,12 +181,18 @@ Return JSON:
                     ...optimizationResult,
                     inputWords,
                     outputWords: actualOutputWords,
-                    creditsUsed: limitCheck.creditsNeeded || 0
+                    creditsUsed: limitCheck.creditsNeeded || 0,
+                    billingWords
                 };
 
             } catch (err) {
                 if (creditTransaction) {
-                    await this.creditSystem.rollbackTransaction(creditTransaction.transactionId);
+                    await this.creditSystem.rollbackTransaction(
+                        userId,
+                        creditTransaction.transactionId,
+                        limitCheck.creditsNeeded || 0,
+                        billingWords
+                    );
                 }
                 throw err;
             }
@@ -199,12 +215,17 @@ Return JSON:
             }
 
             let creditTransaction = null;
+            let billingWords = 0;
+
             if (limitCheck.creditsNeeded > 0) {
+                billingWords = (limitCheck.creditsNeeded || 0) * this.PROMPT_ENGINEER_RATIO;
+
                 creditTransaction = await this.creditSystem.deductCreditsAtomic(
                     userId,
-                    limitCheck.creditsNeeded,
+                    billingWords,
                     limitCheck.userPlan,
-                    'prompt'
+                    'promptEngineer',
+                    'deduction'
                 );
 
                 if (!creditTransaction.success) {
@@ -222,6 +243,7 @@ Return JSON:
                     inputWords,
                     outputWords: actualOutputWords,
                     creditsUsed: limitCheck.creditsNeeded || 0,
+                    billingWords,
                     timestamp: admin.firestore.FieldValue.serverTimestamp()
                 });
 
@@ -230,12 +252,18 @@ Return JSON:
                     analysis,
                     inputWords,
                     outputWords: actualOutputWords,
-                    creditsUsed: limitCheck.creditsNeeded || 0
+                    creditsUsed: limitCheck.creditsNeeded || 0,
+                    billingWords
                 };
 
             } catch (err) {
                 if (creditTransaction) {
-                    await this.creditSystem.rollbackTransaction(creditTransaction.transactionId);
+                    await this.creditSystem.rollbackTransaction(
+                        userId,
+                        creditTransaction.transactionId,
+                        limitCheck.creditsNeeded || 0,
+                        billingWords
+                    );
                 }
                 throw err;
             }
