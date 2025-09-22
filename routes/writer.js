@@ -8,14 +8,15 @@ const MultiPartGenerator = require('../services/multiPartGenerator');
 const { unifiedAuth } = require('../middleware/unifiedAuth');
 const { asyncErrorHandler } = require('../middleware/errorHandler');
 const { validateWriterInput, handleValidationErrors } = require('../middleware/validation');
-const AtomicCreditSystem = require('../services/atomicCreditSystem');
+const ImprovedCreditSystem = require('../services/improvedCreditSystem');
+
 const PlanValidator = require('../services/planValidator');
 
 const router = express.Router();
 const fileProcessingService = new FileProcessingService();
 const contentDatabase = new ContentDatabase();
 const multiPartGenerator = new MultiPartGenerator();
-const atomicCreditSystem = new AtomicCreditSystem();
+const creditSystem = new ImprovedCreditSystem();
 const planValidator = new PlanValidator();
 
 // Configure multer for file uploads
@@ -179,11 +180,11 @@ router.post('/generate', unifiedAuth, validateWriterInput, handleValidationError
         
         // Calculate credits needed based on quality tier
         // Standard: 1 credit per 3 words, Premium: 2x credits (2 credits per 3 words)
-        let baseCreditsNeeded = atomicCreditSystem.calculateRequiredCredits(wordCount, 'writing');
+        let baseCreditsNeeded = creditSystem.calculateRequiredCredits(wordCount, 'writing');
         const creditsNeeded = qualityTier === 'premium' ? baseCreditsNeeded * 2 : baseCreditsNeeded;
         
         // Deduct credits atomically
-        const creditResult = await atomicCreditSystem.deductCreditsAtomic(
+        const creditResult = await creditSystem.deductCreditsAtomic(
             userId,
             creditsNeeded,
             planValidation.userPlan.planType,
@@ -396,7 +397,7 @@ router.post('/generate', unifiedAuth, validateWriterInput, handleValidationError
             
             // Rollback credits on generation failure
             try {
-                await atomicCreditSystem.refundCreditsAtomic(
+                await creditSystem.rollbackTransaction(
                     userId,
                     creditsNeeded,
                     planValidation.userPlan.planType,
@@ -462,11 +463,11 @@ router.post('/upload-and-generate', unifiedAuth, upload.array('files', 10), vali
         
         // Calculate credits needed based on quality tier
         // Standard: 1 credit per 3 words, Premium: 2x credits (2 credits per 3 words)
-        let baseCreditsNeeded = atomicCreditSystem.calculateRequiredCredits(wordCount, 'writing');
+        let baseCreditsNeeded = creditSystem.calculateRequiredCredits(wordCount, 'writing');
         const creditsNeeded = qualityTier === 'premium' ? baseCreditsNeeded * 2 : baseCreditsNeeded;
         
         // Deduct credits atomically
-        const creditResult = await atomicCreditSystem.deductCreditsAtomic(
+        const creditResult = await creditSystem.deductCreditsAtomic(
             userId,
             creditsNeeded,
             planValidation.userPlan.planType,
@@ -493,7 +494,7 @@ router.post('/upload-and-generate', unifiedAuth, upload.array('files', 10), vali
             if (!result.success) {
                 // Rollback credits on file processing failure
                 try {
-                    await atomicCreditSystem.refundCreditsAtomic(
+                    await creditSystem.rollbackTransaction(
                         userId,
                         creditsNeeded,
                         planValidation.userPlan.planType,
@@ -655,7 +656,7 @@ router.post('/upload-and-generate', unifiedAuth, upload.array('files', 10), vali
             
             // Rollback credits on generation failure
             try {
-                await atomicCreditSystem.refundCreditsAtomic(
+                await creditSystem.rollbackTransaction(
                     userId,
                     creditsNeeded,
                     planValidation.userPlan.planType,
