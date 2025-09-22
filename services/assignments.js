@@ -9,7 +9,7 @@ const contentValidator = require('./services/contentValidator');
 const draftManager = require('./services/draftManager');
 const ContentFormatter = require('./services/contentFormatter');
 const PlanValidator = require('./services/planValidator');
-const AtomicCreditSystem = require('./services/atomicCreditSystem');
+const ImprovedCreditSystem = require('./services/ImprovedCreditSystem');
 const ContentDatabase = require('./services/contentDatabase');
 const MultiPartGenerator = require('./services/multiPartGenerator');
 const OriginalityDetection = require('./services/originalityDetection');
@@ -24,7 +24,7 @@ const router = express.Router();
 // Initialize services
 const contentFormatterInstance = new ContentFormatter();
 const planValidatorInstance = new PlanValidator();
-const atomicCreditSystem = new AtomicCreditSystem();
+const ImprovedCreditSystem = new ImprovedCreditSystem();
 const contentDatabase = new ContentDatabase();
 const multiPartGenerator = new MultiPartGenerator();
 const originalityDetection = new OriginalityDetection();
@@ -155,7 +155,7 @@ const checkPlagiarism = async (content) => {
 // Create new assignment
 // New endpoint for AI Writer tool content generation
 router.post('/generate', unifiedAuth, validateAssignmentInput, handleValidationErrors, asyncErrorHandler(async (req, res) => {
-    const { prompt, style, tone, wordCount, subject, additionalInstructions, citationStyle, requiresCitations } = req.body;
+    const { prompt, style, tone, wordCount, subject, additionalInstructions, citationStyle, requiresCitations, assignmentType = 'general', quality = 'standard' } = req.body;
     const userId = req.user.id;
     const db = req.app.locals.db;
 
@@ -166,6 +166,14 @@ router.post('/generate', unifiedAuth, validateAssignmentInput, handleValidationE
 
     if (wordCount < 100) {
         return res.status(400).json({ error: 'Word count must be at least 100' });
+    }
+    
+    if (!['general', 'academic'].includes(assignmentType.toLowerCase())) {
+  return res.status(400).json({ error: 'Invalid assignment type. Must be "general" or "academic".' });
+    }
+
+    if (!['standard', 'premium'].includes(quality.toLowerCase())) {
+  return res.status(400).json({ error: 'Invalid quality. Must be "standard" or "premium".' });
     }
 
     // CRITICAL: Strict freemium checks and plan validation
@@ -216,8 +224,12 @@ router.post('/generate', unifiedAuth, validateAssignmentInput, handleValidationE
                 return res.status(404).json({ error: 'User not found' });
             }
 
-            // Step 2: Atomic credit deduction with 1:10 word-to-credit ratio
-            console.log(`Attempting atomic credit deduction for ${wordCount} words`);
+            let creditMultiplier = 1; 
+            if (quality.toLowerCase() === 'premium') 
+            { creditMultiplier = 2; 
+            }
+            
+            const adjustedWordCount = Math.ceil(wordCount * creditMultiplier);
             
             const creditDeductionResult = await atomicCreditSystem.deductCreditsAtomic(
                 req.user.id,
@@ -251,7 +263,9 @@ router.post('/generate', unifiedAuth, validateAssignmentInput, handleValidationE
                     style,
                     tone,
                     subject: subject || '',
-                    additionalInstructions: additionalInstructions || ''
+                    additionalInstructions: additionalInstructions || '',
+                    assignmentType,
+                    quality 
                 });
                 
                 // Step 4: Process citations if required
@@ -321,6 +335,8 @@ router.post('/generate', unifiedAuth, validateAssignmentInput, handleValidationE
                         optimizationApplied: generationResult.usedSimilarContent,
                         userPlan: planValidation.userPlan.planType,
                         planLimits: planValidation.userPlan,
+                        assignmentType,
+                        quality,
                         tags: [subject, style, tone].filter(Boolean)
                     };
                     
