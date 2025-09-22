@@ -13,7 +13,7 @@ class ImprovedCreditSystem {
             writing: 3,
             research: 5,
             detector: 10,
-            detector_generation: 5
+            detector_generation: 5,
             promptEngineer: 5
         };
         this.MAX_RETRY_ATTEMPTS = 5; // Increased from 3
