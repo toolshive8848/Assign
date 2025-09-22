@@ -183,19 +183,19 @@ router.post('/generate', unifiedAuth, validateWriterInput, handleValidationError
         let baseCreditsNeeded = creditSystem.calculateRequiredCredits(wordCount, 'writing');
         const creditsNeeded = qualityTier === 'premium' ? baseCreditsNeeded * 2 : baseCreditsNeeded;
         
-        // Deduct credits atomically
-        const creditResult = await creditSystem.deductCreditsAtomic(
-            userId,
-            creditsNeeded,
-            planValidation.userPlan.planType,
-            'writing'
-        );
-        
-        if (!creditResult.success) {
-            return res.status(400).json({
-                success: false,
-                error: `Insufficient credits. Need ${creditsNeeded}, available: ${creditResult.previousBalance || 0}`
-            });
+       // Deduct credits using ImprovedCreditSystem
+    const creditResult = await creditSystem.deductCreditsAtomic(
+      userId,
+      wordCount,     // raw requested words
+      planType,
+      "writing"
+    );
+
+    if (!creditResult.success) {
+      return res.status(402).json({
+        error: "Insufficient credits",
+        details: creditResult
+      });
         }
         
         try {
@@ -466,19 +466,44 @@ router.post('/upload-and-generate', unifiedAuth, upload.array('files', 10), vali
         let baseCreditsNeeded = creditSystem.calculateRequiredCredits(wordCount, 'writing');
         const creditsNeeded = qualityTier === 'premium' ? baseCreditsNeeded * 2 : baseCreditsNeeded;
         
-        // Deduct credits atomically
+        // Deduct credits via ImprovedCreditSystem
         const creditResult = await creditSystem.deductCreditsAtomic(
-            userId,
-            creditsNeeded,
-            planValidation.userPlan.planType,
-            'writing'
-        );
-        
-        if (!creditResult.success) {
-            return res.status(400).json({
-                success: false,
-                error: `Insufficient credits. Need ${creditsNeeded}, available: ${creditResult.previousBalance || 0}`
-            });
+        userId,
+        wordCount,
+        planType,
+        "writing"
+       );
+
+       if (!creditResult.success) {
+       return res.status(402).json({
+        error: "Insufficient credits",
+        details: creditResult
+      });
+    }
+
+    const content = await multiPartGenerator.generate(userId, extracted, wordCount, style);
+    const validation = contentValidator.validate(content, wordCount);
+
+    const historyId = await contentHistory.save(userId, {
+      prompt: extracted.slice(0, 100) + "...",
+      content,
+      style,
+      wordCount,
+      validation,
+      creditsUsed: creditResult.creditsDeducted
+    });
+
+    await logActivity(userId, "Writer: Generated from upload", {
+      wordCount,
+      creditsUsed: creditResult.creditsDeducted
+    });
+
+    res.json({ id: historyId, content, validation });
+  } catch (err) {
+    console.error("Upload generate error:", err);
+    res.status(500).json({ error: "Failed to generate from file" });
+  }
+});
         }
         
         try {
