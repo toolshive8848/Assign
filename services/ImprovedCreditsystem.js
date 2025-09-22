@@ -1,5 +1,4 @@
 const { admin, db, isInitialized } = require('../config/firebase');
-const { globalErrorHandler } = require('../middleware/errorHandler');
 
 /**
  * ImprovedCreditSystem class with enhanced transaction integrity and race condition prevention
