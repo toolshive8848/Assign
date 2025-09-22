@@ -1,15 +1,10 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
-const fs = require('fs').promises;
-const path = require('path');
+const { Document, Packer, Paragraph } = require('docx');
 const llmService = require('./services/llmService');
-const contentProcessor = require('./services/contentProcessor');
-const contentValidator = require('./services/contentValidator');
-const draftManager = require('./services/draftManager');
 const ContentFormatter = require('./services/contentFormatter');
 const PlanValidator = require('./services/planValidator');
 const ImprovedCreditSystem = require('./services/improvedCreditSystem');
-const ContentDatabase = require('./services/contentDatabase');
 const MultiPartGenerator = require('./services/multiPartGenerator');
 const OriginalityDetection = require('./services/originalityDetection');
 const ZoteroCSLProcessor = require('./services/zoteroCSL');
@@ -18,13 +13,13 @@ const FinalDetectionService = require('./services/finalDetection');
 const { unifiedAuth } = require('./middleware/unifiedAuth');
 const { asyncErrorHandler } = require('./middleware/errorHandler');
 const { validateAssignmentInput, handleValidationErrors } = require('./middleware/validation');
+const admin = require('firebase-admin'); // Firestore
 const router = express.Router();
 
 // Initialize services
 const contentFormatterInstance = new ContentFormatter();
 const planValidatorInstance = new PlanValidator();
-const creditSystem = new ImprovedCreditSystem();
-const contentDatabase = new ContentDatabase();
+const improvedCreditSystem = new ImprovedCreditSystem();
 const multiPartGenerator = new MultiPartGenerator();
 const originalityDetection = new OriginalityDetection();
 const zoteroCSLProcessor = new ZoteroCSLProcessor();
@@ -33,13 +28,9 @@ const finalDetectionService = new FinalDetectionService();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
-// Middleware to verify JWT token
 const authenticateToken = (req, res, next) => {
     const token = req.headers.authorization?.split(' ')[1];
-    
-    if (!token) {
-        return res.status(401).json({ error: 'Access token required' });
-    }
+    if (!token) return res.status(401).json({ error: 'Access token required' });
 
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
@@ -195,7 +186,6 @@ router.post('/generate', unifiedAuth, validateAssignmentInput, handleValidationE
     assignmentType = 'general', 
     quality = 'standard' } = req.body;
     const userId = req.user.id;
-    const db = req.app.locals.db;
 
     // Validate input parameters
     if (!prompt || !wordCount) {
@@ -251,14 +241,19 @@ router.post('/generate', unifiedAuth, validateAssignmentInput, handleValidationE
     }
 
     try {
-        // Get user information and check credits
-        db.get('SELECT credits, is_premium FROM users WHERE id = ?', [userId], async (err, user) => {
-            if (err) {
-                console.error('Database error:', err);
-                return res.status(500).json({ error: 'Database error' });
-            }
+        // Get user information and check credits let user;
+        try {
+    const userDoc = await admin.firestore().collection('users').doc(userId).get();
 
-            if (!user) {
+    if (!userDoc.exists) {
+        return res.status(404).json({ error: 'User not found' });
+    }
+    user = userDoc.data(); // { credits, is_premium }
+} catch (err) {
+    console.error('Database error:', err);
+    return res.status(500).json({ error: 'Database error' });
+}
+    if (!user) {
                 return res.status(404).json({ error: 'User not found' });
             }
 
@@ -406,7 +401,7 @@ router.post('/generate', unifiedAuth, validateAssignmentInput, handleValidationE
                     };
                     
                     // Save to Firestore
-                    await db.collection('assignments').doc(assignmentId).set(assignment);
+                    await admin.firestore().collection('assignments').doc(assignmentId).set(assignment);
                     
                     res.json({
                         success: true,
@@ -854,7 +849,7 @@ router.get('/drafts/:id', unifiedAuth, asyncErrorHandler(async (req, res) => {
         const userId = req.user.id;
 
         // Firestore path: drafts collection, doc(draftId)
-        const draftRef = db.collection('drafts').doc(draftId);
+        const draftRef = admin.firestore().collection('drafts').doc(draftId);
         const draftSnap = await draftRef.get();
 
         if (!draftSnap.exists || draftSnap.data().userId !== userId) {
@@ -881,7 +876,7 @@ router.put('/drafts/:id', unifiedAuth, validateAssignmentInput, handleValidation
         const userId = req.user.id;
         const { title, content, prompt, style, tone, targetWordCount, status, createVersion } = req.body;
 
-        const draftRef = db.collection('drafts').doc(draftId);
+        const draftRef = admin.firestore().collection('drafts').doc(draftId);
         const draftSnap = await draftRef.get();
 
         // Verify ownership
@@ -904,7 +899,7 @@ router.put('/drafts/:id', unifiedAuth, validateAssignmentInput, handleValidation
 
         // If versioning is enabled, save a copy into "draftVersions"
         if (createVersion === true) {
-            await db.collection('draftVersions').add({
+            await admin.firestore().collection('draftVersions').add({
                 draftId,
                 userId,
                 versionData: updateData,
@@ -930,7 +925,7 @@ router.get('/drafts/:id/versions', unifiedAuth, asyncErrorHandler(async (req, re
         const userId = req.user.id;
 
         // Verify ownership
-        const draftRef = db.collection('drafts').doc(draftId);
+        const draftRef = admin.firestore().collection('drafts').doc(draftId);
         const draftSnap = await draftRef.get();
 
         if (!draftSnap.exists || draftSnap.data().userId !== userId) {
@@ -938,7 +933,7 @@ router.get('/drafts/:id/versions', unifiedAuth, asyncErrorHandler(async (req, re
         }
 
         // Fetch all versions of this draft
-        const versionsSnap = await db.collection('draftVersions')
+        const versionsSnap = await admin.firestore().collection('draftVersions')
             .where('draftId', '==', draftId)
             .where('userId', '==', userId)
             .orderBy('createdAt', 'desc')
@@ -967,7 +962,7 @@ router.post('/drafts/:id/restore/:version', unifiedAuth, asyncErrorHandler(async
         const userId = req.user.id;
 
         // Verify ownership of draft
-        const draftRef = db.collection('drafts').doc(draftId);
+        const draftRef = admin.firestore().collection('drafts').doc(draftId);
         const draftSnap = await draftRef.get();
 
         if (!draftSnap.exists || draftSnap.data().userId !== userId) {
@@ -975,7 +970,7 @@ router.post('/drafts/:id/restore/:version', unifiedAuth, asyncErrorHandler(async
         }
 
         // Get the version document
-        const versionRef = db.collection('draftVersions').doc(versionId);
+        const versionRef = admin.firestore().collection('draftVersions').doc(versionId);
         const versionSnap = await versionRef.get();
 
         if (!versionSnap.exists || versionSnap.data().draftId !== draftId || versionSnap.data().userId !== userId) {
@@ -1016,7 +1011,7 @@ router.post('/drafts/:id/autosave-session', unifiedAuth, asyncErrorHandler(async
         const userId = req.user.id;
 
         // Verify ownership
-        const draftRef = db.collection('drafts').doc(draftId);
+        const draftRef = admin.firestore().collection('drafts').doc(draftId);
         const draftSnap = await draftRef.get();
 
         if (!draftSnap.exists || draftSnap.data().userId !== userId) {
@@ -1027,7 +1022,7 @@ router.post('/drafts/:id/autosave-session', unifiedAuth, asyncErrorHandler(async
         const sessionToken = `autosave_${userId}_${draftId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
         // Store session in a dedicated Firestore collection
-        await db.collection('draftAutoSaveSessions').doc(sessionToken).set({
+        await admin.firestore().collection('draftAutoSaveSessions').doc(sessionToken).set({
             draftId,
             userId,
             createdAt: new Date(),
@@ -1056,7 +1051,7 @@ router.post('/drafts/autosave', unifiedAuth, asyncErrorHandler(async (req, res) 
         }
 
         // Lookup session
-        const sessionRef = db.collection('draftAutoSaveSessions').doc(sessionToken);
+        const sessionRef = admin.firestore().collection('draftAutoSaveSessions').doc(sessionToken);
         const sessionSnap = await sessionRef.get();
 
         if (!sessionSnap.exists) {
@@ -1074,7 +1069,7 @@ router.post('/drafts/autosave', unifiedAuth, asyncErrorHandler(async (req, res) 
         }
 
         // Update draft in Firestore
-        const draftRef = db.collection('drafts').doc(session.draftId);
+        const draftRef = admin.firestore().collection('drafts').doc(session.draftId);
         await draftRef.update({
             content,
             updatedAt: new Date(),
@@ -1099,7 +1094,7 @@ router.delete('/drafts/:id', unifiedAuth, asyncErrorHandler(async (req, res) => 
         const draftId = req.params.id; // Firestore uses string IDs, no parseInt
         const userId = req.user.id;
 
-        const draftRef = db.collection('drafts').doc(draftId);
+        const draftRef = admin.firestore().collection('drafts').doc(draftId);
         const draftSnap = await draftRef.get();
 
         if (!draftSnap.exists) {
@@ -1131,7 +1126,7 @@ router.get('/drafts-stats', unifiedAuth, asyncErrorHandler(async (req, res) => {
         const userId = req.user.id;
 
         // Fetch all drafts for the user
-        const draftsSnap = await db.collection('drafts')
+        const draftsSnap = await admin.firestore().collection('drafts')
             .where('userId', '==', userId)
             .get();
 
