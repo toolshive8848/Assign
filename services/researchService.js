@@ -91,19 +91,19 @@ class ResearchService {
       };
 
       return {
-        success: true,
-        data: {
-          ...researchData,
-          sources: sourceValidation.sources,
-          citations: citationResult.success ? citationResult.citations : null,
-          sourceValidation: sourceValidation.summary,
-          recommendations: sourceValidation.recommendations,
-          qualityScore: citationResult.success ? 
-            this.citationGenerator.generateCitationReport(citationResult.citations).quality.score : null
-        },
-        metadata,
-        wordCount
-      };
+  success: true,
+  results: {
+    ...researchData,
+    sources: sourceValidation.sources,
+    citations: citationResult.success ? citationResult.citations : null,
+    sourceValidation: sourceValidation.summary,
+    recommendations: sourceValidation.recommendations,
+    qualityScore: citationResult.success ? 
+      this.citationGenerator.generateCitationReport(citationResult.citations).quality.score : null
+  },
+  metadata,
+  wordCount
+};
 
     } catch (error) {
       console.error('Research generation error:', error);
@@ -373,23 +373,30 @@ Begin your research now:
    */
   async getResearchHistory(userId, limit = 20, offset = 0) {
     try {
-      const query = this.db.collection('research_history')
-        .where('userId', '==', userId)
-        .orderBy('timestamp', 'desc')
-        .limit(limit)
-        .offset(offset);
+     let firestoreQuery = this.db.collection('research_history')
+  .where('userId', '==', userId)
+  .orderBy('timestamp', 'desc')
+  .limit(limit);
 
-      const snapshot = await query.get();
-      const history = [];
+if (offset && offset.lastDoc) {
+  firestoreQuery = firestoreQuery.startAfter(offset.lastDoc);
+}
 
-      snapshot.forEach(doc => {
-        history.push({
-          id: doc.id,
-          ...doc.data()
-        });
-      });
+const snapshot = await firestoreQuery.get();
+const history = [];
 
-      return history;
+snapshot.forEach(doc => {
+  history.push({
+    id: doc.id,
+    ...doc.data()
+  });
+});
+
+// Return both history and lastDoc so caller can paginate
+return {
+  history,
+  lastDoc: snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null
+};
 
     } catch (error) {
       console.error('Error fetching research history:', error);
