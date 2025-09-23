@@ -139,7 +139,8 @@ router.post('/generate', unifiedAuth, validateWriterInput, handleValidationError
             assignmentTitle,
             citationStyle = 'APA'
         } = req.body;
-        const userId = req.user.userId;
+       const userId = req.user.userId;
+   const planType = planValidation.userPlan.planType;
         
         if (!prompt || prompt.trim().length === 0) {
             return res.status(400).json({
@@ -154,6 +155,39 @@ router.post('/generate', unifiedAuth, validateWriterInput, handleValidationError
                 error: 'Word count must be between 100 and 2000'
             });
         }
+
+        // ✅ Premium Academic Assignments → delegate to assignments.js
+      if (contentType === 'assignment' && qualityTier === 'premium') {
+        console.log("Delegating to assignments.js (premium academic assignment)");
+
+        const assignmentResult = await generateAssignmentForWriter({
+          userId,
+          title: assignmentTitle,
+          description: prompt,
+          wordCount,
+          citationStyle,
+          style,
+          tone,
+          planType,
+          qualityTier
+        });
+
+        return res.json(assignmentResult);
+      }
+
+      // 🔹 Else → continue with normal writer.js logic
+      // ... your existing standard content generation logic here ...
+
+    } catch (error) {
+      console.error('Error in writer generate endpoint:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        details: error.message
+      });
+    }
+  })
+);
         
         // For assignment type, require title
         if (contentType === 'assignment' && (!assignmentTitle || assignmentTitle.trim().length === 0)) {
@@ -183,13 +217,16 @@ router.post('/generate', unifiedAuth, validateWriterInput, handleValidationError
         let baseCreditsNeeded = creditSystem.calculateRequiredCredits(wordCount, 'writing');
         const creditsNeeded = qualityTier === 'premium' ? baseCreditsNeeded * 2 : baseCreditsNeeded;
         
-       // Deduct credits using ImprovedCreditSystem
-    const creditResult = await creditSystem.deductCreditsAtomic(
-      userId,
-      wordCount,     // raw requested words
-      planType,
-      "writing"
-    );
+      // Deduct credits using ImprovedCreditSystem 
+        const creditResult = await creditSystem.deductCreditsAtomic(
+            userId,
+            wordCount,                                // requested word 
+            planValidation.userPlan.planType,         // actual plan type from validator
+            "writing",                                // tool type
+            qualityTier                               // "standard" or "premium"
+      ); 
+        const creditsNeeded = creditResult.creditsDeducted;
+      );
 
     if (!creditResult.success) {
       return res.status(402).json({
