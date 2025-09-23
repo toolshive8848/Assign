@@ -206,23 +206,25 @@ class SourceValidator {
   detectSourceType(citation) {
     const lowerCitation = citation.toLowerCase();
     
-    for (const [type, patterns] of Object.entries(this.sourcePatterns)) {
-      let matches = 0;
-      for (const pattern of patterns) {
-        if (pattern.test(citation)) {
-          matches++;
-        }
-      }
-      
-      if (matches > 0) {
-        const confidence = Math.min(matches / patterns.length, 1.0);
-        return {
-          type,
-          confidence,
-          matches
-        };
-      }
+   for (const [type, patterns] of Object.entries(this.sourcePatterns)) {
+  const patternList = Array.isArray(patterns) ? patterns : [patterns];
+  let matches = 0;
+
+  for (const pattern of patternList) {
+    if (pattern.test(citation)) {
+      matches++;
     }
+  }
+
+  if (matches > 0) {
+    const confidence = Math.min(matches / patternList.length, 1.0);
+    return {
+      type,
+      confidence,
+      matches
+    };
+  }
+}
     
     return {
       type: 'website',
