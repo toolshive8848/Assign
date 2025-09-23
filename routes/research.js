@@ -114,30 +114,20 @@ router.post('/query', unifiedAuth, validateResearchInput, asyncErrorHandler(asyn
     // Step 5: Calculate actual credits based on output
     const actualCredits = researchService.calculateResearchCredits(researchResult.wordCount, depth);
     
-    // Step 6: Adjust credits if needed (refund or charge difference)
-    let finalCreditsUsed = creditDeductionResult.creditsDeducted;
-    if (actualCredits !== estimatedCredits) {
-      const creditDifference = actualCredits - estimatedCredits;
-      if (creditDifference > 0) {
-        // Need to charge more credits
-        const additionalDeduction = await creditSystem.deductCreditsAtomic(
-          req.user.id,
-          creditDifference,
-          planValidation.userPlan.planType
-        );
-        if (additionalDeduction.success) {
-          finalCreditsUsed += creditDifference;
-        }
-      } else if (creditDifference < 0) {
-        // Refund excess credits
-        await improvedCreditSystem.refundCredits(
-          req.user.id,
-          Math.abs(creditDifference),
-          creditDeductionResult.transactionId
-        );
-        finalCreditsUsed = actualCredits;
-      }
-    }
+    // Step 6: Adjust credits if actual > estimated (only extra charge, no refunds)
+   let finalCreditsUsed = creditDeductionResult.creditsDeducted;
+if (actualCredits > estimatedCredits) {
+  const creditDifference = actualCredits - estimatedCredits;
+  const additionalDeduction = await improvedCreditSystem.deductCreditsAtomic(
+    req.user.id,
+    creditDifference,
+    planValidation.userPlan.planType,
+    'research'
+  );
+  if (additionalDeduction.success) {
+    finalCreditsUsed += creditDifference;
+  }
+}
 
     // Step 7: Save to research history with enhanced data
     let researchId = null;
