@@ -1,6 +1,6 @@
 const express = require('express');
 const ResearchService = require('./services/researchService');
-const AtomicCreditSystem = require('./services/atomicCreditSystem');
+const ImprovedCreditSystem = require('./services/improvedCreditSystem');
 const PlanValidator = require('./services/planValidator');
 const PDFGenerator = require('./services/pdfGenerator');
 const { unifiedAuth } = require('./middleware/unifiedAuth');
@@ -11,7 +11,7 @@ const router = express.Router();
 
 // Initialize services
 const researchService = new ResearchService();
-const atomicCreditSystem = new AtomicCreditSystem();
+const CreditSystem = new ImprovedCreditSystem();
 const planValidator = new PlanValidator();
 const pdfGenerator = new PDFGenerator();
 
@@ -80,8 +80,8 @@ router.post('/query', unifiedAuth, validateResearchInput, asyncErrorHandler(asyn
       });
     }
 
-    // Step 3: Atomic credit deduction for research
-    const creditDeductionResult = await atomicCreditSystem.deductCreditsAtomic(
+    // Step 3: credit deduction for research
+    const creditDeductionResult = await improvedCreditSystem.deductCreditsAtomic(
       req.user.id,
       estimatedCredits,
       planValidation.userPlan.planType,
@@ -120,7 +120,7 @@ router.post('/query', unifiedAuth, validateResearchInput, asyncErrorHandler(asyn
       const creditDifference = actualCredits - estimatedCredits;
       if (creditDifference > 0) {
         // Need to charge more credits
-        const additionalDeduction = await atomicCreditSystem.deductCreditsAtomic(
+        const additionalDeduction = await improvedCreditSystem.deductCreditsAtomic(
           req.user.id,
           creditDifference,
           planValidation.userPlan.planType
@@ -130,7 +130,7 @@ router.post('/query', unifiedAuth, validateResearchInput, asyncErrorHandler(asyn
         }
       } else if (creditDifference < 0) {
         // Refund excess credits
-        await atomicCreditSystem.refundCredits(
+        await improvedCreditSystem.refundCredits(
           req.user.id,
           Math.abs(creditDifference),
           creditDeductionResult.transactionId
@@ -195,7 +195,7 @@ router.post('/query', unifiedAuth, validateResearchInput, asyncErrorHandler(asyn
     // Rollback credits on error
     if (creditDeductionResult && creditDeductionResult.success) {
       try {
-        await atomicCreditSystem.rollbackTransaction(
+        await improvedCreditSystem.rollbackTransaction(
           req.user.id,
           creditDeductionResult.transactionId,
           creditDeductionResult.creditsDeducted,
@@ -712,7 +712,7 @@ router.post('/generate-citations', unifiedAuth, asyncErrorHandler(async (req, re
     const estimatedCredits = Math.ceil(sources.length * 0.3); // 0.3 credits per citation
 
     // Deduct credits
-    const creditDeductionResult = await atomicCreditSystem.deductCreditsAtomic(
+    const creditDeductionResult = await improvedCreditSystem.deductCreditsAtomic(
       req.user.id,
       estimatedCredits,
       planValidation.userPlan.planType,
