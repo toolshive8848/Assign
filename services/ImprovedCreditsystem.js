@@ -2,14 +2,14 @@ const { admin, db, isInitialized } = require('../config/firebase');
 
 /**
  * ImprovedCreditSystem class with enhanced transaction integrity and race condition prevention
- * Addresses critical issues found in the original atomic credit system
  */
 class ImprovedCreditSystem {
     constructor() {
         this.db = isInitialized ? db : null;
         this.isInitialized = isInitialized;
         this.CREDIT_RATIOS = {
-            writing: 3,
+            writing: 3,              // Standard → 1 credit = 3 words
+            writing_premium: 1.5,    // Premium → 1 credit = 1.5 words (2 credits = 3 words)
             research: 5,
             detector: 10,
             detector_generation: 5,
@@ -25,76 +25,95 @@ class ImprovedCreditSystem {
     /**
      * Calculate required credits with validation
      */
-    calculateRequiredCredits(requestedAmount, toolType = 'writing', operation = null) {
-        if (!requestedAmount || requestedAmount <= 0) {
-            throw new Error('Invalid amount for credit calculation');
-        }
-        
-        if (requestedAmount > 100000) { // Prevent excessive requests
-            throw new Error('Request amount exceeds maximum limit (100,000)');
-        }
-
-        if (toolType === 'detector') {
-            const ratio = operation === 'detection' ? this.CREDIT_RATIOS.detector : this.CREDIT_RATIOS.detector_generation;
-            return Math.ceil(requestedAmount / ratio);
-        }
-        
-        const ratio = this.CREDIT_RATIOS[toolType] || this.CREDIT_RATIOS.writing;
-        return Math.ceil(requestedAmount / ratio);
+ calculateRequiredCredits(requestedAmount, toolType = 'writing', quality = 'standard', operation = null) {
+    if (!requestedAmount || requestedAmount <= 0) {
+        throw new Error('Invalid amount for credit calculation');
     }
+    
+    if (requestedAmount > 100000) {
+        throw new Error('Request amount exceeds maximum limit (100,000)');
+    }
+
+    switch (toolType) {
+        case 'detector':
+            return Math.ceil(
+                requestedAmount / (
+                    operation === 'detection' 
+                        ? this.CREDIT_RATIOS.detector 
+                        : this.CREDIT_RATIOS.detector_generation
+                )
+            );
+
+        case 'writing':
+            return Math.ceil(
+                requestedAmount / (
+                    quality === 'premium' 
+                        ? this.CREDIT_RATIOS.writing_premium 
+                        : this.CREDIT_RATIOS.writing
+                )
+            );
+
+        case 'research':
+            return Math.ceil(requestedAmount / this.CREDIT_RATIOS.research);
+
+        case 'promptEngineer':
+            return Math.ceil(requestedAmount / this.CREDIT_RATIOS.promptEngineer);
+
+        default:
+            return Math.ceil(requestedAmount / this.CREDIT_RATIOS.writing);
+    }
+}
 
     /**
      * Enhanced atomic credit deduction with improved race condition handling
      */
-    async deductCreditsAtomic(userId, requestedAmount, planType, toolType = 'writing', operation = null) {
-        // Validate inputs
-        if (!userId || typeof userId !== 'string') {
-            throw new Error('Invalid user ID');
+async deductCreditsAtomic(userId, requestedAmount, planType, toolType = 'writing', quality = 'standard', operation = null) {
+    if (!userId || typeof userId !== 'string') {
+        throw new Error('Invalid user ID');
+    }
+    
+    if (!planType || typeof planType !== 'string') {
+        throw new Error('Invalid plan type');
+    }
+
+    // Check concurrent transaction limit
+    const currentCount = this.userTransactionCounts.get(userId) || 0;
+    if (currentCount >= this.CONCURRENT_TRANSACTION_LIMIT) {
+        throw new Error('Too many concurrent transactions. Please wait and try again.');
+    }
+    this.userTransactionCounts.set(userId, currentCount + 1);
+
+    try {
+        // Premium-aware credit calculation
+        const requiredCredits = this.calculateRequiredCredits(requestedAmount, toolType, quality, operation);
+        const wordCount = toolType === 'detector' ? 0 : requestedAmount;
+
+        // Mock mode for uninitialized Firebase
+        if (!this.isInitialized) {
+            console.log(`⚠️  Firebase not initialized, returning mock credit deduction for user ${userId}`);
+            return {
+                success: true,
+                mock: true,
+                creditsDeducted: requiredCredits,
+                remainingCredits: 200 - requiredCredits,
+                monthlyWordsUsed: wordCount,
+                toolType,
+                requestedAmount
+            };
         }
-        
-        if (!planType || typeof planType !== 'string') {
-            throw new Error('Invalid plan type');
-        }
 
-        // Check concurrent transaction limit
-        const currentCount = this.userTransactionCounts.get(userId) || 0;
-        if (currentCount >= this.CONCURRENT_TRANSACTION_LIMIT) {
-            throw new Error('Too many concurrent transactions. Please wait and try again.');
-        }
-
-        // Increment transaction counter
-        this.userTransactionCounts.set(userId, currentCount + 1);
-
-        try {
-            const requiredCredits = this.calculateRequiredCredits(requestedAmount, toolType, operation);
-            const wordCount = toolType === 'detector' ? 0 : requestedAmount;
-
-            // Mock mode for uninitialized Firebase
-            if (!this.isInitialized) {
-                console.log(`⚠️  Firebase not initialized, returning mock credit deduction for user ${userId}`);
-                return {
-                    success: true,
-                    mock: true,
-                    creditsDeducted: requiredCredits,
-                    remainingCredits: 200 - requiredCredits,
-                    monthlyWordsUsed: wordCount,
-                    toolType: toolType,
-                    requestedAmount: requestedAmount
-                };
-            }
-
-            // Execute transaction with enhanced retry logic
-            return await this.executeTransactionWithRetry(userId, requiredCredits, wordCount, planType, toolType);
-        } finally {
-            // Always decrement transaction counter
-            const newCount = Math.max(0, (this.userTransactionCounts.get(userId) || 1) - 1);
-            if (newCount === 0) {
-                this.userTransactionCounts.delete(userId);
-            } else {
-                this.userTransactionCounts.set(userId, newCount);
-            }
+        // Execute transaction with enhanced retry logic
+        return await this.executeTransactionWithRetry(userId, requiredCredits, wordCount, planType, toolType);
+    } finally {
+        // Always decrement transaction counter
+        const newCount = Math.max(0, (this.userTransactionCounts.get(userId) || 1) - 1);
+        if (newCount === 0) {
+            this.userTransactionCounts.delete(userId);
+        } else {
+            this.userTransactionCounts.set(userId, newCount);
         }
     }
+}
 
     /**
      * Enhanced transaction execution with better retry logic
