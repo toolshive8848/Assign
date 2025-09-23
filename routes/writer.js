@@ -9,9 +9,9 @@ const { unifiedAuth } = require('../middleware/unifiedAuth');
 const { asyncErrorHandler } = require('../middleware/errorHandler');
 const { validateWriterInput, handleValidationErrors } = require('../middleware/validation');
 const ImprovedCreditSystem = require('../services/improvedCreditSystem');
+const { generateAssignmentForWriter } = require('./assignments');
 
 const PlanValidator = require('../services/planValidator');
-
 const router = express.Router();
 const fileProcessingService = new FileProcessingService();
 const contentDatabase = new ContentDatabase();
@@ -106,22 +106,33 @@ In conclusion, this analysis of "${title}" reveals significant insights that con
 
 ## References
 
-${citationStyle === 'APA' ? 
-`Smith, J. (2023). Academic Writing in the Digital Age. Journal of Modern Education, 45(2), 123-145.
+ // Centralized citation templates
+    const citationTemplates = {
+        APA: `
+Smith, J. (2023). Academic Writing in the Digital Age. Journal of Modern Education, 45(2), 123-145.
+Johnson, M. & Brown, A. (2022). Research Methodologies for Students. Academic Press.
+        `.trim(),
 
-Johnson, M. & Brown, A. (2022). Research Methodologies for Students. Academic Press.` :
-citationStyle === 'MLA' ?
-`Smith, John. "Academic Writing in the Digital Age." Journal of Modern Education, vol. 45, no. 2, 2023, pp. 123-145.
+        MLA: `
+Smith, John. "Academic Writing in the Digital Age." Journal of Modern Education, vol. 45, no. 2, 2023, pp. 123-145.
+Johnson, Mary, and Anne Brown. Research Methodologies for Students. Academic Press, 2022.
+        `.trim(),
 
-Johnson, Mary, and Anne Brown. Research Methodologies for Students. Academic Press, 2022.` :
-`Smith, J. (2023). Academic Writing in the Digital Age. Journal of Modern Education 45, no. 2: 123-145.
+        Harvard: `
+Smith, J., 2023. Academic Writing in the Digital Age. Journal of Modern Education, 45(2), pp.123-145.
+Johnson, M. & Brown, A., 2022. Research Methodologies for Students. Academic Press.
+        `.trim(),
 
-Johnson, M., and A. Brown. Research Methodologies for Students. Academic Press, 2022.`}
-    `.trim();
+        Chicago: `
+Smith, John. 2023. "Academic Writing in the Digital Age." Journal of Modern Education 45, no. 2: 123-145.
+Johnson, Mary, and Anne Brown. 2022. Research Methodologies for Students. Academic Press.
+        `.trim(),
 
-        return fallbackContent;
-    }
-};
+        IEEE: `
+[1] J. Smith, "Academic Writing in the Digital Age," Journal of Modern Education, vol. 45, no. 2, pp. 123-145, 2023.
+[2] M. Johnson and A. Brown, Research Methodologies for Students. Academic Press, 2022.
+        `.trim()
+    };
 
 /**
  * POST /api/writer/generate
