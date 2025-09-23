@@ -507,23 +507,24 @@ function formatAsMarkdown(research) {
  * Helper function to format citations only
  */
 function formatCitations(research) {
- const results = research.results || research.data || {};
-let citations = `Citations for Research: ${research.query}\n`;
-  citations += `Generated on: ${new Date(research.timestamp.toDate()).toLocaleDateString()}\n\n`;
-  
   const results = research.results || research.data || {};
-if (results.sources && results.sources.length > 0) {
-  results.sources.forEach((source, index) => {
-    bibliography += `${index + 1}. `;
-    
-    if (source.citation) {
-      bibliography += source.citation;
-    } else {
-  
-      // fallback
+  let citations = `Citations for Research: ${research.query}\n`;
+  citations += `Generated on: ${new Date(research.timestamp.toDate()).toLocaleDateString()}\n\n`;
+
+  if (results.sources && results.sources.length > 0) {
+    results.sources.forEach((source, index) => {
+      if (source.citation) {
+        citations += `${index + 1}. ${source.citation}\n`;
+      } else {
+        const title = source.title || 'Untitled';
+        const url = source.url || 'No URL available';
+        citations += `${index + 1}. ${title} — ${url}\n`;
+      }
+    });
+  } else {
     citations += 'No sources found in this research.\n';
   }
-  
+
   return citations;
 }
 
