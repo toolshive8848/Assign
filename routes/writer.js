@@ -138,37 +138,59 @@ Johnson, Mary, and Anne Brown. 2022. Research Methodologies for Students. Academ
  * POST /api/writer/generate
  * Generate content from text prompt or assignment
  */
-router.post('/generate', unifiedAuth, validateWriterInput, handleValidationErrors, asyncErrorHandler(async (req, res) => {
+router.post(
+  "/generate",
+  unifiedAuth,
+  validateWriterInput,
+  handleValidationErrors,
+  asyncErrorHandler(async (req, res) => {
     try {
-        const { 
-            prompt, 
-            style = 'Academic', 
-            tone = 'Formal', 
-            wordCount = 500, 
-            qualityTier = 'standard',
-            contentType = 'general', // 'general' or 'assignment'
-            assignmentTitle,
-            citationStyle = 'APA'
-        } = req.body;
-       const userId = req.user.userId;
-   const planType = planValidation.userPlan.planType;
-        
-        if (!prompt || prompt.trim().length === 0) {
-            return res.status(400).json({
-                success: false,
-                error: 'Prompt is required'
-            });
-        }
-        
-        if (wordCount < 100 || wordCount > 2000) {
-            return res.status(400).json({
-                success: false,
-                error: 'Word count must be between 100 and 2000'
-            });
-        }
+      const {
+        prompt,
+        style = "Academic",
+        tone = "Formal",
+        wordCount = 500,
+        qualityTier = "standard",
+        contentType = "general", // 'general' or 'assignment'
+        assignmentTitle,
+        citationStyle = "APA",
+      } = req.body;
 
-        // ✅ Premium Academic Assignments → delegate to assignments.js
-      if (contentType === 'assignment' && qualityTier === 'premium') {
+      const userId = req.user.userId;
+
+      // 🔹 Input checks
+      if (!prompt || prompt.trim().length === 0) {
+        return res.status(400).json({ success: false, error: "Prompt is required" });
+      }
+      if (wordCount < 100 || wordCount > 2000) {
+        return res
+          .status(400)
+          .json({ success: false, error: "Word count must be between 100 and 2000" });
+      }
+      if (contentType === "assignment" && (!assignmentTitle || assignmentTitle.trim().length === 0)) {
+        return res.status(400).json({
+          success: false,
+          error: "Assignment title is required for assignment generation",
+        });
+      }
+
+      // 🔹 Validate user plan
+      const planValidation = await planValidator.validateUserPlan(userId, {
+        toolType: "writing",
+        requestType: "generation",
+      });
+      if (!planValidation.isValid) {
+        return res.status(403).json({
+          success: false,
+          error: planValidation.error || "Plan validation failed",
+        });
+      }
+      const planType = planValidation.userPlan.planType;
+
+      /**
+       * FLOW 1: Assignment + Premium → Delegate to assignments.js
+       */
+      if (contentType === "assignment" && qualityTier === "premium") {
         console.log("Delegating to assignments.js (premium academic assignment)");
 
         const assignmentResult = await generateAssignmentForWriter({
@@ -180,266 +202,112 @@ router.post('/generate', unifiedAuth, validateWriterInput, handleValidationError
           style,
           tone,
           planType,
-          qualityTier
+          qualityTier,
         });
 
         return res.json(assignmentResult);
       }
 
-      // 🔹 Else → continue with normal writer.js logic
-      // ... your existing standard content generation logic here ...
+      /**
+       * FLOW 2 & 3: Other cases (General + Standard/Premium OR Assignment + Standard)
+       * Handle fully inside writer.js
+       */
 
-    } catch (error) {
-      console.error('Error in writer generate endpoint:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Internal server error',
-        details: error.message
-      });
-    }
-  })
-);
-        
-        // For assignment type, require title
-        if (contentType === 'assignment' && (!assignmentTitle || assignmentTitle.trim().length === 0)) {
-            return res.status(400).json({
-                success: false,
-                error: 'Assignment title is required for assignment generation'
-            });
-        }
-        
-        // Validate user plan and calculate credits
-        const planValidation = await planValidator.validateUserPlan(userId, {
-            toolType: 'writing',
-            requestType: 'generation'
-        });
-        
-        if (!planValidation.isValid) {
-            return res.status(403).json({
-                success: false,
-                error: planValidation.error || 'Plan validation failed'
-            });
-        }
-        
-        // Premium quality tier is now available to all users with 2x credit cost
-        
-        // Calculate credits needed based on quality tier
-        // Standard: 1 credit per 3 words, Premium: 2x credits (2 credits per 3 words)
-        let baseCreditsNeeded = creditSystem.calculateRequiredCredits(wordCount, 'writing');
-        const creditsNeeded = qualityTier === 'premium' ? baseCreditsNeeded * 2 : baseCreditsNeeded;
-        
-      // Deduct credits using ImprovedCreditSystem 
-        const creditResult = await creditSystem.deductCreditsAtomic(
-            userId,
-            wordCount,                                // requested word 
-            planValidation.userPlan.planType,         // actual plan type from validator
-            "writing",                                // tool type
-            qualityTier                               // "standard" or "premium"
-      ); 
-        const creditsNeeded = creditResult.creditsDeducted;
+      // 🔹 Credit calculation
+      let baseCreditsNeeded = creditSystem.calculateRequiredCredits(wordCount, "writing");
+      const creditsNeeded = qualityTier === "premium" ? baseCreditsNeeded * 2 : baseCreditsNeeded;
+
+      // 🔹 Deduct credits
+      const creditResult = await creditSystem.deductCreditsAtomic(
+        userId,
+        wordCount,
+        planType,
+        "writing",
+        qualityTier
       );
+      if (!creditResult.success) {
+        return res.status(402).json({
+          error: "Insufficient credits",
+          details: creditResult,
+        });
+      }
 
-    if (!creditResult.success) {
-      return res.status(402).json({
-        error: "Insufficient credits",
-        details: creditResult
+      // 🔹 Decide generation strategy
+      let result;
+      let contentSource = "new_generation";
+      const useMultiPart =
+        wordCount > 800 || (planValidation.userPlan.planType !== "freemium" && wordCount > 500);
+      const enableRefinement = qualityTier === "premium";
+
+      if (useMultiPart) {
+        // Multi-part generation
+        result = await multiPartGenerator.generateMultiPartContent({
+          userId,
+          prompt: contentType === "assignment" ? `Assignment: ${assignmentTitle}\n\n${prompt}` : prompt,
+          requestedWordCount: wordCount,
+          userPlan: planType,
+          style,
+          tone,
+          subject: assignmentTitle || "",
+          additionalInstructions:
+            contentType === "assignment"
+              ? `Generate academic assignment with ${citationStyle} citations`
+              : "",
+          requiresCitations: contentType === "assignment",
+          citationStyle,
+          qualityTier,
+          enableRefinement,
+        });
+
+        contentSource = result.usedSimilarContent
+          ? "multipart_optimized"
+          : contentType === "assignment"
+          ? "assignment_multipart_new"
+          : "multipart_new";
+      } else {
+        // Single-shot generation
+        result = await llmService.generateContent(
+          prompt,
+          style,
+          tone,
+          wordCount,
+          qualityTier
+        );
+      }
+
+      // 🔹 Store result
+      if (result && result.content) {
+        await contentDatabase.storeContent(userId, prompt, result.content, {
+          style,
+          tone,
+          generationTime: result.generationTime,
+          source: contentSource,
+          wordCount: wordCount,
+        });
+      }
+
+      // 🔹 Response
+      return res.json({
+        success: true,
+        content: result.content,
+        metadata: {
+          source: result.source || "generation",
+          generationTime: result.generationTime,
+          contentSource,
+          style,
+          tone,
+          wordCount: result.wordCount || wordCount,
+          creditsUsed: creditsNeeded,
+          remainingCredits: creditResult.newBalance,
+          qualityTier,
+          contentType,
+          assignmentTitle: contentType === "assignment" ? assignmentTitle : null,
+          citationStyle: contentType === "assignment" ? citationStyle : null,
+          isMultiPart: useMultiPart,
+          refinementCycles: result.refinementCycles || 0,
+        },
       });
-        }
-        
-        try {
-            let result;
-            let contentSource = 'new_generation';
-            
-            // Determine if multi-part generation is needed
-            // Use multi-part for requests > 800 words or when user plan supports it
-            const useMultiPart = wordCount > 800 || 
-                               (planValidation.userPlan.planType !== 'freemium' && wordCount > 500);
-            
-            // Enable 2-loop refinement system for premium quality tier
-            const enableRefinement = qualityTier === 'premium';
-            
-            // Handle assignment generation with premium features integration
-            if (contentType === 'assignment') {
-                console.log(`Generating assignment: ${assignmentTitle} (Quality: ${qualityTier})`);
-                
-                if (qualityTier === 'premium' && (useMultiPart || enableRefinement)) {
-                    // Use multi-part generation with refinement for premium assignments
-                    console.log('Using premium multi-part generation for assignment');
-                    
-                    result = await multiPartGenerator.generateMultiPartContent({
-                        userId,
-                        prompt: `Assignment Title: ${assignmentTitle}\n\nInstructions: ${prompt}`,
-                        requestedWordCount: wordCount,
-                        userPlan: planValidation.userPlan.planType,
-                        style,
-                        tone,
-                        subject: assignmentTitle,
-                        additionalInstructions: `Generate academic assignment with ${citationStyle} citations`,
-                        requiresCitations: true,
-                        citationStyle: citationStyle,
-                        qualityTier: qualityTier,
-                        enableRefinement: enableRefinement
-                    });
-                    
-                    contentSource = result.usedSimilarContent ? 'assignment_multipart_optimized' : 'assignment_multipart_new';
-                } else {
-                    // Use standard assignment generation for standard quality
-                    const assignmentContent = await generateAssignmentContent(
-                        assignmentTitle,
-                        prompt,
-                        wordCount,
-                        citationStyle,
-                        style,
-                        tone
-                    );
-                    
-                    // Apply 2-loop refinement for premium quality even in single generation
-                    let finalContent = assignmentContent;
-                    let refinementCycles = 0;
-                    
-                    if (enableRefinement) {
-                        console.log('Applying 2-loop refinement to assignment');
-                        try {
-                            const refinedContent = await llmService.generateContent(
-                                `Refine and improve this assignment content:\n\n${assignmentContent}\n\nMake it more academic, add depth, and ensure ${citationStyle} citation format.`,
-                                style,
-                                tone,
-                                wordCount,
-                                'premium'
-                            );
-                            finalContent = refinedContent.content;
-                            refinementCycles = 1;
-                        } catch (refinementError) {
-                            console.warn('Refinement failed, using original content:', refinementError);
-                        }
-                    }
-                    
-                    result = {
-                        content: finalContent,
-                        wordCount: finalContent.split(/\s+/).length,
-                        generationTime: enableRefinement ? 3500 : 2000,
-                        source: 'assignment_generation',
-                        refinementCycles: refinementCycles,
-                        chunksGenerated: 1
-                    };
-                    contentSource = enableRefinement ? 'assignment_refined' : 'assignment_new';
-                }
-            } else if (useMultiPart) {
-                console.log(`Using multi-part generation for ${wordCount} words`);
-                
-                // Use MultiPartGenerator for chunk-based generation with iterative detection
-                result = await multiPartGenerator.generateMultiPartContent({
-                    userId,
-                    prompt,
-                    requestedWordCount: wordCount,
-                    userPlan: planValidation.userPlan.planType,
-                    style,
-                    tone,
-                    subject: req.body.subject || '',
-                    additionalInstructions: req.body.additionalInstructions || '',
-                    requiresCitations: req.body.requiresCitations || false,
-                    citationStyle: req.body.citationStyle || 'apa',
-                    qualityTier: qualityTier,
-                    enableRefinement: enableRefinement
-                });
-                
-                contentSource = result.usedSimilarContent ? 'multipart_optimized' : 'multipart_new';
-            } else {
-                // Use traditional single-generation for smaller content
-                console.log(`Using single generation for ${wordCount} words`);
-                
-                // Check for similar content in database (80%+ matching)
-                const similarContent = await contentDatabase.findSimilarContent(prompt, style, tone, wordCount);
-                
-                if (similarContent && similarContent.length > 0) {
-                    // Use existing similar content as base for polishing
-                    console.log(`Found ${similarContent.length} similar content matches`);
-                    const bestMatch = similarContent[0]; // Highest similarity score
-                    
-                    // Get content for polishing and refinement
-                    const polishingContent = await contentDatabase.getContentForPolishing(bestMatch.contentId, wordCount);
-                    
-                    if (polishingContent && polishingContent.sections) {
-                        // Use existing content as base, polish to match new requirements
-                        result = await llmService.polishExistingContent(
-                            polishingContent.sections,
-                            prompt,
-                            style,
-                            tone,
-                            wordCount,
-                            qualityTier
-                        );
-                        contentSource = 'optimized_existing';
-                        
-                        // Update access statistics for the reused content
-                        await contentDatabase.updateAccessStatistics([bestMatch.contentId]);
-                    } else {
-                        // Fallback to new generation if polishing fails
-                        result = await llmService.generateContent(prompt, style, tone, wordCount, qualityTier);
-                    }
-                } else {
-                    // No similar content found, generate new content
-                    console.log('No similar content found, generating new content');
-                    result = await llmService.generateContent(prompt, style, tone, wordCount, qualityTier);
-                }
-                
-                // Store the new/polished content in database for future optimization
-                if (result && result.content) {
-                    await contentDatabase.storeContent(userId, prompt, result.content, {
-                        style,
-                        tone,
-                        generationTime: result.generationTime,
-                        source: contentSource,
-                        wordCount: wordCount
-                    });
-                }
-            }
-            
-            res.json({
-                success: true,
-                content: result.content,
-                metadata: {
-                    source: result.source || 'multipart_generation',
-                    generationTime: result.generationTime,
-                    fallbackUsed: result.fallbackUsed,
-                    contentSource: contentSource,
-                    similarContentFound: result.usedSimilarContent || false,
-                    style: style,
-                    tone: tone,
-                    wordCount: result.wordCount || wordCount,
-                    creditsUsed: creditsNeeded,
-                    remainingCredits: creditResult.newBalance,
-                    qualityTier: qualityTier,
-                    enabledRefinement: enableRefinement,
-                    // Content type specific metadata
-                    contentType: contentType,
-                    isAssignment: contentType === 'assignment',
-                    assignmentTitle: contentType === 'assignment' ? assignmentTitle : null,
-                    citationStyle: contentType === 'assignment' ? citationStyle : null,
-                    // Multi-part specific metadata
-                    isMultiPart: contentType === 'assignment' ? 
-                        (qualityTier === 'premium' && (useMultiPart || enableRefinement) && result.chunksGenerated > 1) : 
-                        useMultiPart,
-                    chunksGenerated: result.chunksGenerated || 1,
-                    refinementCycles: result.refinementCycles || 0,
-                    contentId: result.contentId,
-                    requiresCitations: contentType === 'assignment' ? true : (result.citationData?.requiresCitations || false),
-                    citationCount: result.citationData?.citationCount || 0,
-                    citationStyle: contentType === 'assignment' ? citationStyle : (result.citationData?.style || null),
-                    bibliography: result.citationData?.bibliography || [],
-                    inTextCitations: result.citationData?.inTextCitations || [],
-                    // Final detection results
-                    originalityScore: result.finalDetectionResults?.originalityScore || null,
-                    aiDetectionScore: result.finalDetectionResults?.aiDetectionScore || null,
-                    plagiarismScore: result.finalDetectionResults?.plagiarismScore || null,
-                    qualityScore: result.finalDetectionResults?.qualityScore || null,
-                    requiresReview: result.finalDetectionResults?.requiresReview || false,
-                    isAcceptable: result.finalDetectionResults?.isAcceptable || true,
-                    detectionConfidence: result.finalDetectionResults?.confidence || null,
-                    detectionRecommendations: result.finalDetectionResults?.recommendations || []
-                }
-            });
-            
+           
         } catch (generationError) {
             console.error('Content generation failed, rolling back credits:', generationError);
             
@@ -513,6 +381,8 @@ router.post('/upload-and-generate', unifiedAuth, upload.array('files', 10), vali
         // Standard: 1 credit per 3 words, Premium: 2x credits (2 credits per 3 words)
         let baseCreditsNeeded = creditSystem.calculateRequiredCredits(wordCount, 'writing');
         const creditsNeeded = qualityTier === 'premium' ? baseCreditsNeeded * 2 : baseCreditsNeeded;
+
+        const planType = planValidation.userPlan.planType;
         
         // Deduct credits via ImprovedCreditSystem
         const creditResult = await creditSystem.deductCreditsAtomic(
