@@ -466,8 +466,8 @@ router.post('/export/:id', unifiedAuth, asyncErrorHandler(async (req, res) => {
  * Helper function to format research as plain text
  */
 function formatAsText(research) {
-  const results = research.results;
-  let text = `Research Query: ${research.query}\n`;
+  const results = research.results || research.data || {};
+ let text = `Research Query: ${research.query}\n`;
   text += `Research Type: ${research.researchType}\n`;
   text += `Depth Level: ${research.depth}\n`;
   text += `Date: ${new Date(research.timestamp.toDate()).toLocaleDateString()}\n\n`;
@@ -539,15 +539,20 @@ function formatAsMarkdown(research) {
  * Helper function to format citations only
  */
 function formatCitations(research) {
-  const results = research.results;
-  let citations = `Citations for Research: ${research.query}\n`;
+ const results = research.results || research.data || {};
+let citations = `Citations for Research: ${research.query}\n`;
   citations += `Generated on: ${new Date(research.timestamp.toDate()).toLocaleDateString()}\n\n`;
   
-  if (results.sources && results.sources.length > 0) {
-    results.sources.forEach((source, index) => {
-      citations += `[${index + 1}] ${source.citation}\n`;
-    });
-  } else {
+  const results = research.results || research.data || {};
+if (results.sources && results.sources.length > 0) {
+  results.sources.forEach((source, index) => {
+    bibliography += `${index + 1}. `;
+    
+    if (source.citation) {
+      bibliography += source.citation;
+    } else {
+  
+      // fallback
     citations += 'No sources found in this research.\n';
   }
   
