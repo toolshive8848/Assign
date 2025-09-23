@@ -375,63 +375,64 @@ router.post('/export/:id', unifiedAuth, asyncErrorHandler(async (req, res) => {
       });
     }
 
-    // Get research data
-    const research = await researchService.getResearchById(id, req.user.id);
-    
-    let exportData;
-    let contentType;
-    let filename;
+   // Get research data
+const research = await researchService.getResearchById(id, req.user.id);
+const results = research.results || research.data || {}; // Fallback for old records
 
-    switch (format) {
-      case 'json':
-        exportData = JSON.stringify(research, null, 2);
-        contentType = 'application/json';
-        filename = `research-${id}.json`;
-        break;
-        
-      case 'txt':
-        exportData = formatAsText(research);
-        contentType = 'text/plain';
-        filename = `research-${id}.txt`;
-        break;
-        
-      case 'markdown':
-        exportData = formatAsMarkdown(research);
-        contentType = 'text/markdown';
-        filename = `research-${id}.md`;
-        break;
-        
-      case 'citations':
-        exportData = formatCitations(research);
-        contentType = 'text/plain';
-        filename = `research-citations-${id}.txt`;
-        break;
-        
-      case 'bibliography':
-        exportData = formatBibliography(research);
-        contentType = 'text/plain';
-        filename = `research-bibliography-${id}.txt`;
-        break;
-        
-      case 'pdf':
-        exportData = await pdfGenerator.generateResearchPDF(research);
-        contentType = 'application/pdf';
-        filename = `research-report-${id}.pdf`;
-        break;
-        
-      case 'pdf-citations':
-        if (research.citations) {
-          exportData = await pdfGenerator.generateCitationsPDF(research.citations);
-        } else {
-          return res.status(400).json({
-            success: false,
-            error: 'No citations available for this research'
-          });
-        }
-        contentType = 'application/pdf';
-        filename = `research-citations-${id}.pdf`;
-        break;
+let exportData;
+let contentType;
+let filename;
+
+switch (format) {
+  case 'json':
+    exportData = JSON.stringify(results, null, 2);
+    contentType = 'application/json';
+    filename = `research-${id}.json`;
+    break;
+    
+  case 'txt':
+    exportData = formatAsText(results);
+    contentType = 'text/plain';
+    filename = `research-${id}.txt`;
+    break;
+    
+  case 'markdown':
+    exportData = formatAsMarkdown(results);
+    contentType = 'text/markdown';
+    filename = `research-${id}.md`;
+    break;
+    
+  case 'citations':
+    exportData = formatCitations(results);
+    contentType = 'text/plain';
+    filename = `research-citations-${id}.txt`;
+    break;
+    
+  case 'bibliography':
+    exportData = formatBibliography(results);
+    contentType = 'text/plain';
+    filename = `research-bibliography-${id}.txt`;
+    break;
+    
+  case 'pdf':
+    exportData = await pdfGenerator.generateResearchPDF(results);
+    contentType = 'application/pdf';
+    filename = `research-report-${id}.pdf`;
+    break;
+    
+  case 'pdf-citations':
+    if (results.citations) {
+      exportData = await pdfGenerator.generateCitationsPDF(results.citations);
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: 'No citations available for this research'
+      });
     }
+    contentType = 'application/pdf';
+    filename = `research-citations-${id}.pdf`;
+    break;
+}
 
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
