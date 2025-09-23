@@ -353,114 +353,91 @@ router.delete('/:id', unifiedAuth, asyncErrorHandler(async (req, res) => {
 
 /**
  * POST /api/research/export/:id
- * Export research results in various formats
- */
-router.post('/export/:id', unifiedAuth, asyncErrorHandler(async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { format = 'json' } = req.body;
-    
-    if (!id) {
-      return res.status(400).json({
-        success: false,
-        error: 'Research ID is required'
-      });
-    }
+ // Export research in different formats
+router.post('/export/:id', requireAuth, asyncErrorHandler(async (req, res) => {
+  const { id } = req.params;
+  const { format } = req.body;
 
-    const validFormats = ['json', 'txt', 'markdown', 'citations', 'pdf', 'bibliography', 'pdf-citations'];
-    if (!validFormats.includes(format)) {
-      return res.status(400).json({
-        success: false,
-        error: `Invalid format. Must be one of: ${validFormats.join(', ')}`
-      });
-    }
+  // Fetch research
+  const research = await researchService.getResearchById(id, req.user.id);
+  const results = research.results || research.data || {}; // fallback for old records
 
-   // Get research data
-const research = await researchService.getResearchById(id, req.user.id);
-const results = research.results || research.data || {}; // Fallback for old records
+  let exportData;
+  let contentType;
+  let filename;
 
-let exportData;
-let contentType;
-let filename;
+  switch (format) {
+    case 'json':
+      exportData = JSON.stringify(results, null, 2);
+      contentType = 'application/json';
+      filename = `research-${id}.json`;
+      break;
 
-switch (format) {
-  case 'json':
-    exportData = JSON.stringify(results, null, 2);
-    contentType = 'application/json';
-    filename = `research-${id}.json`;
-    break;
-    
-  case 'txt':
-    exportData = formatAsText(results);
-    contentType = 'text/plain';
-    filename = `research-${id}.txt`;
-    break;
-    
-  case 'markdown':
-    exportData = formatAsMarkdown(results);
-    contentType = 'text/markdown';
-    filename = `research-${id}.md`;
-    break;
-    
-  case 'citations':
-    exportData = formatCitations(results);
-    contentType = 'text/plain';
-    filename = `research-citations-${id}.txt`;
-    break;
-    
-  case 'bibliography':
-    exportData = formatBibliography(results);
-    contentType = 'text/plain';
-    filename = `research-bibliography-${id}.txt`;
-    break;
-    
-  case 'pdf':
-    exportData = await pdfGenerator.generateResearchPDF(results);
-    contentType = 'application/pdf';
-    filename = `research-report-${id}.pdf`;
-    break;
-    
-  case 'pdf-citations':
-    if (results.citations) {
-      exportData = await pdfGenerator.generateCitationsPDF(results.citations);
-    } else {
-      return res.status(400).json({
-        success: false,
-        error: 'No citations available for this research'
-      });
-    }
-    contentType = 'application/pdf';
-    filename = `research-citations-${id}.pdf`;
-    break;
-}
+    case 'txt':
+      exportData = formatAsText(results);
+      contentType = 'text/plain';
+      filename = `research-${id}.txt`;
+      break;
 
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send(exportData);
+    case 'markdown':
+      exportData = formatAsMarkdown(results);
+      contentType = 'text/markdown';
+      filename = `research-${id}.md`;
+      break;
 
-  } catch (error) {
-    console.error('Export research error:', error);
-    
-    if (error.message === 'Research not found') {
-      return res.status(404).json({
-        success: false,
-        error: 'Research not found'
-      });
-    }
-    
-    if (error.message === 'Unauthorized access to research') {
-      return res.status(403).json({
-        success: false,
-        error: 'Unauthorized access to research'
-      });
-    }
+    case 'citations':
+      if (results.citations) {
+        exportData = formatCitations(results);
+        contentType = 'text/plain';
+        filename = `research-citations-${id}.txt`;
+      } else {
+        return res.status(400).json({ success: false, error: 'No citations available' });
+      }
+      break;
 
-    res.status(500).json({
-      success: false,
-      error: 'Failed to export research',
-      details: error.message
-    });
+    case 'bibliography':
+      if (results.citations) {
+        exportData = formatBibliography(results);
+        contentType = 'text/plain';
+        filename = `research-bibliography-${id}.txt`;
+      } else {
+        return res.status(400).json({ success: false, error: 'No bibliography available' });
+      }
+      break;
+
+    case 'pdf':
+      exportData = await pdfGenerator.generateResearchPDF(results);
+      contentType = 'application/pdf';
+      filename = `research-report-${id}.pdf`;
+      break;
+
+    case 'pdf-citations':
+      if (results.citations) {
+        exportData = await pdfGenerator.generateCitationsPDF(results.citations);
+      } else {
+        return res.status(400).json({ success: false, error: 'No citations available' });
+      }
+      contentType = 'application/pdf';
+      filename = `research-citations-${id}.pdf`;
+      break;
+
+    case 'pdf-bibliography':
+      if (results.citations) {
+        exportData = await pdfGenerator.generateBibliographyPDF(results.citations);
+      } else {
+        return res.status(400).json({ success: false, error: 'No bibliography available' });
+      }
+      contentType = 'application/pdf';
+      filename = `research-bibliography-${id}.pdf`;
+      break;
+
+    default:
+      return res.status(400).json({ success: false, error: 'Unsupported export format' });
   }
+
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+  res.send(exportData);
 }));
 
 /**
