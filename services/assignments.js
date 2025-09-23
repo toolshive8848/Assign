@@ -264,7 +264,7 @@ router.post('/generate', unifiedAuth, validateAssignmentInput, handleValidationE
             
             const adjustedWordCount = Math.ceil(wordCount * creditMultiplier);
             
-            const creditDeductionResult = await ImprovedCreditSystem.deductCreditsAtomic(
+            const creditDeductionResult = await improvedCreditSystem.deductCreditsAtomic(
                 req.user.id,
                 wordCount, // Pass requested word count directly
                 planValidation.userPlan.planType,
@@ -1438,4 +1438,74 @@ router.get('/usage/stats', authenticateToken, asyncErrorHandler(async (req, res)
     res.json({ success: true, stats });
 }));
 
-module.exports = router;
+/**
+ * Service function for Writer tool to generate premium academic assignments
+ */
+async function generateAssignmentForWriter({
+  userId,
+  title,
+  description,
+  wordCount,
+  citationStyle = 'APA',
+  style = 'Academic',
+  tone = 'Formal',
+  planType,
+  qualityTier = 'premium'
+}) {
+  // Deduct credits first
+  const creditResult = await improvedCreditSystem.deductCreditsAtomic(
+    userId,
+    wordCount,
+    planType,
+    "writing",
+    qualityTier
+  );
+
+  if (!creditResult.success) {
+    return { success: false, error: 'Insufficient credits' };
+  }
+
+  // Use multi-part generator with refinement + citations
+  const generationResult = await multiPartGenerator.generateMultiPartContent({
+    userId,
+    prompt: `Assignment Title: ${title}\n\nInstructions: ${description}`,
+    requestedWordCount: wordCount,
+    userPlan: planType,
+    style,
+    tone,
+    subject: title,
+    additionalInstructions: description,
+    requiresCitations: true,
+    citationStyle,
+    qualityTier,
+    enableRefinement: qualityTier === 'premium'
+  });
+
+  // Run final detection (AI/Plagiarism)
+  const finalDetectionResults = await finalDetectionService.processFinalDetection(
+    generationResult.content,
+    generationResult.chunkDetectionResults || [],
+    {
+      contentId: generationResult.contentId,
+      userId,
+      isMultiPart: generationResult.chunksGenerated > 1,
+      generationMethod: 'multi-part'
+    }
+  );
+
+  return {
+    success: true,
+    content: generationResult.content,
+    wordCount: generationResult.wordCount,
+    citations: citationStyle,
+    quality: qualityTier,
+    detection: finalDetectionResults,
+    creditsUsed: creditResult.creditsDeducted,
+    remainingCredits: creditResult.newBalance
+  };
+}
+
+module.exports = {
+  router,
+  generateAssignmentForWriter
+};
