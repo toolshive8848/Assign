@@ -1,8 +1,9 @@
 const axios = require('axios');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const admin = require('firebase-admin');
-const AtomicCreditSystem = require('./atomicCreditSystem');
+const ImprovedCreditSystem = require('./improvedCreditSystem');
 const PlanValidator = require('./planValidator');
+
 const { logger } = require('../utils/logger');
 
 class DetectorService {
@@ -16,7 +17,7 @@ class DetectorService {
     // Required for Gemini 2.5 Pro model used in content improvement
     this.geminiApiKey = process.env.GEMINI_API_KEY; // Add your Gemini API key
     this.genAI = new GoogleGenerativeAI(this.geminiApiKey);
-    this.atomicCredit = new AtomicCreditSystem();
+    this.creditSystem = new ImprovedCreditSystem();
     this.planValidator = new PlanValidator();
     
     // Initialize Firebase database with proper error handling
@@ -29,10 +30,6 @@ class DetectorService {
       });
       this.db = null;
     }
-    
-    // Credit costs - now handled by AtomicCreditSystem
-    // Detection: 50 credits per 1000 words
-    // Generation: 1 credit per 10 words
   }
 
   /**
@@ -45,47 +42,51 @@ class DetectorService {
   /**
    * Calculate detection credits needed
    */
-  calculateDetectionCredits(wordCount) {
-    return this.atomicCredit.calculateRequiredCredits(wordCount, 'detector', 'detection');
+   calculateDetectionCredits(wordCount) {
+    return this.creditSystem.calculateRequiredCredits(wordCount, 'detector', 'detection');
   }
 
   /**
    * Calculate generation credits needed
    */
   calculateGenerationCredits(wordCount) {
-    return this.atomicCredit.calculateRequiredCredits(wordCount, 'detector', 'generation');
+    return this.creditSystem.calculateRequiredCredits(wordCount, 'detector', 'generation');
   }
 
   /**
    * Analyze content using Originality.ai
    */
-  async analyzeContent(userId, content, options = {}) {
+ async analyzeContent(userId, content, options = {}) {
+  try {
+    const wordCount = this.calculateWordCount(content);
+    if (wordCount > 1000) {
+      throw new Error('Content exceeds maximum 1000 word limit.');
+    }
+
+    // 🔹 Validate plan
+    const planValidation = await this.planValidator.validateRequest(userId, content, wordCount, 'detector');
+    if (!planValidation.isValid) {
+      throw new Error(planValidation.error || 'Plan validation failed');
+    }
+
+    // 🔹 Deduct credits
+    let creditDeduction;
     try {
-      // Validate user plan
-      const planValidation = await this.planValidator.validateUserPlan(userId, {
-        toolType: 'detector',
-        requestType: 'analysis'
-      });
-
-      if (!planValidation.isValid) {
-        throw new Error(planValidation.error || 'Plan validation failed');
-      }
-
-      const wordCount = this.calculateWordCount(content);
-      const creditsNeeded = this.calculateDetectionCredits(wordCount);
-
-      // Deduct credits atomically
-      const creditResult = await this.atomicCredit.deductCreditsAtomic(
+      creditDeduction = await this.creditSystem.deductCreditsAtomic(
         userId,
-        creditsNeeded, // Pass credits directly for detector tool
+        wordCount,
         planValidation.userPlan.planType,
-        'detector'
+        'detector',
+        'detection'
       );
 
-      if (!creditResult.success) {
-        throw new Error(`Insufficient credits. Need ${creditsNeeded}, available: ${creditResult.previousBalance || 0}`);
+      if (!creditDeduction.success) {
+        throw new Error('Insufficient credits for detection');
       }
-
+    } catch (err) {
+      throw new Error(`Credit deduction failed: ${err.message}`);
+    }
+    
       const analysisResults = {};
 
       try {
@@ -102,32 +103,32 @@ class DetectorService {
           analysisResults.readability = await this.analyzeReadability(content);
         }
 
-        // Store analysis result
         const analysisId = await this.storeDetectorResult({
           userId,
           content,
           results: analysisResults,
-          wordCount,
-          creditsUsed: creditsNeeded,
+          wordCount, 
+          creditsUsed: creditDeduction.creditsDeducted,
           timestamp: new Date()
-        });
+    });
 
         return {
           success: true,
           analysisId,
           wordCount,
-          creditsUsed: creditsNeeded,
+          creditsUsed: creditDeduction.creditsDeducted,
           results: analysisResults
         };
 
       } catch (analysisError) {
-        // Rollback credits on failure
-        await this.atomicCredit.rollbackTransaction(
-          userId,
-          creditResult.transactionId,
-          creditsNeeded,
-          0 // No words to deduct for detector
-        );
+       // rollback on failure
+  if (creditDeduction?.transactionId) {
+    await this.creditSystem.rollbackTransaction(
+      userId,
+      creditDeduction.transactionId,
+      creditDeduction.creditsDeducted,
+      creditDeduction.wordsAllocated
+  );
         throw analysisError;
       }
 
@@ -325,86 +326,65 @@ class DetectorService {
     return 'Graduate';
   }
 
-  /**
-   * Remove detected issues using Gemini 2.5 Pro
+    /**
+   * Regenerate content (Remove All button)
    */
-  async removeDetectedIssues(userId, content, detectionResults, options = {}) {
+  async regenerateContent(userId, content, options = {}) {
+    const wordCount = this.calculateWordCount(content);
+    if (wordCount > 1000) {
+      throw new Error('Content exceeds maximum 1000 word limit.');
+    }
+
+    // Validate plan
+    const planValidation = await this.planValidator.validateRequest(userId, content, wordCount, 'detector');
+    if (!planValidation.isValid) {
+      throw new Error(planValidation.error || 'Plan validation failed');
+    }
+
+    // Deduct credits for regeneration
+    let regenDeduction;
     try {
-      // Validate user plan
-      const planValidation = await this.planValidator.validateUserPlan(userId, {
-        toolType: 'detector',
-        requestType: 'removal'
-      });
-
-      if (!planValidation.isValid) {
-        throw new Error(planValidation.error || 'Plan validation failed');
-      }
-
-      const wordCount = this.calculateWordCount(content);
-      const creditsNeeded = this.calculateGenerationCredits(wordCount);
-
-      // Deduct credits atomically for content generation
-      const creditResult = await this.atomicCredit.deductCreditsAtomic(
+      regenDeduction = await this.creditSystem.deductCreditsAtomic(
         userId,
-        creditsNeeded, // Pass credits needed for generation
+        wordCount,
         planValidation.userPlan.planType,
-        'detector'
+        'detector',
+        'generation'
       );
 
-      if (!creditResult.success) {
-        throw new Error(`Insufficient credits. Need ${creditsNeeded}, available: ${creditResult.previousBalance || 0}`);
+      if (!regenDeduction.success) {
+        throw new Error('Insufficient credits for regeneration');
       }
-
-      try {
-        const model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
-        
-        const prompt = this.buildRemovalPrompt(content, detectionResults, options);
-        
-        const result = await model.generateContent(prompt);
-        const improvedContent = result.response.text();
-
-        // Store removal result
-        await this.storeDetectorRemoval({
-          userId,
-          originalContent: content,
-          improvedContent,
-          detectionResults,
-          wordCount,
-          creditsUsed: creditResult.creditsDeducted,
-          timestamp: new Date()
-        });
-
-        return {
-          success: true,
-          improvedContent,
-          originalWordCount: wordCount,
-          newWordCount: this.calculateWordCount(improvedContent),
-          creditsUsed: creditResult.creditsDeducted
-        };
-
-      } catch (generationError) {
-        // Rollback credits on failure
-        await this.atomicCredit.rollbackTransaction(
-          userId,
-          creditResult.transactionId,
-          creditResult.creditsDeducted,
-          wordCount
-        );
-        throw generationError;
-      }
-
-    } catch (error) {
-      logger.error('Content removal failed', {
-        service: 'DetectorService',
-        method: 'removeDetectedIssues',
-        userId,
-        wordCount: this.calculateWordCount(content),
-        error: error.message,
-        stack: error.stack
-      });
-      throw new Error(`Content improvement failed: ${error.message}`);
+    } catch (err) {
+      throw new Error(`Credit deduction failed: ${err.message}`);
     }
+
+    // Run regeneration
+    let regeneratedContent;
+    try {
+      regeneratedContent = await this.runRegeneration(content, options);
+    } catch (err) {
+      // rollback if regeneration fails
+      if (regenDeduction?.transactionId) {
+        await this.creditSystem.rollbackTransaction(
+          userId,
+          regenDeduction.transactionId,
+          regenDeduction.creditsDeducted,
+          regenDeduction.wordsAllocated
+        );
+      }
+      throw err;
+    }
+
+    return {
+      success: true,
+      regeneratedContent,
+      creditsUsed: regenDeduction.creditsDeducted,
+      transactionId: regenDeduction.transactionId,
+      wordCount
+    };
   }
+
 
   /**
    * Build prompt for content improvement
@@ -517,22 +497,20 @@ class DetectorService {
       const generationCredits = this.calculateGenerationCredits(detectedWordCount);
 
       // Validate user plan for removal
-      const planValidation = await this.planValidator.validateUserPlan(userId, {
-        toolType: 'detector',
-        requestType: 'removal'
-      });
+     const planValidation = await this.planValidator.validateRequest(userId, content, detectedWordCount, 'detector');
 
       if (!planValidation.isValid) {
         throw new Error(planValidation.error || 'Plan validation failed');
       }
 
       // Deduct credits for the entire removal process (1:5 ratio)
-      const removalCreditResult = await this.atomicCredit.deductCreditsAtomic(
-        userId,
-        generationCredits, // Pass credits needed for generation
-        planValidation.userPlan.planType,
-        'detector'
-      );
+     const removalCreditResult = await this.creditSystem.deductCreditsAtomic(
+      userId,
+      detectedWordCount, // pass actual words
+      planValidation.userPlan.planType, 
+       'detector',
+       'generation'
+  );
 
       if (!removalCreditResult.success) {
         throw new Error(`Insufficient credits for removal. Need ${generationCredits}, available: ${removalCreditResult.previousBalance || 0}`);
@@ -588,7 +566,7 @@ class DetectorService {
 
       } catch (workflowError) {
         // Rollback removal credits on failure
-        await this.atomicCredit.rollbackTransaction(
+        await this.creditSystem.rollbackTransaction(
           userId,
           removalCreditResult.transactionId,
           removalCreditResult.creditsDeducted,
@@ -742,6 +720,15 @@ class DetectorService {
       throw new Error('Failed to fetch detection history');
     }
   }
+  /**
+ * Run regeneration using Gemini 2.5 Pro
+ */
+   async runRegeneration(content, options = {}) { 
+       const model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+       const prompt = this.buildRemovalPrompt(content, {}, options);
+       const result = await model.generateContent(prompt);
+       return result.response.text();
+    }
 }
 
 module.exports = DetectorService;
