@@ -118,7 +118,7 @@ router.post('/query', unifiedAuth, validateResearchInput, asyncErrorHandler(asyn
    let finalCreditsUsed = creditDeductionResult.creditsDeducted;
 if (actualCredits > estimatedCredits) {
   const creditDifference = actualCredits - estimatedCredits;
-  const additionalDeduction = await improvedCreditSystem.deductCreditsAtomic(
+  const additionalDeduction = await creditSystem.deductCreditsAtomic(
     req.user.id,
     creditDifference,
     planValidation.userPlan.planType,
