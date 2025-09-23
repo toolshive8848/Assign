@@ -11,7 +11,7 @@ const router = express.Router();
 
 // Initialize services
 const researchService = new ResearchService();
-const CreditSystem = new ImprovedCreditSystem();
+const creditSystem = new ImprovedCreditSystem();
 const planValidator = new PlanValidator();
 const pdfGenerator = new PDFGenerator();
 
@@ -81,7 +81,7 @@ router.post('/query', unifiedAuth, validateResearchInput, asyncErrorHandler(asyn
     }
 
     // Step 3: credit deduction for research
-    const creditDeductionResult = await improvedCreditSystem.deductCreditsAtomic(
+    const creditDeductionResult = await creditSystem.deductCreditsAtomic(
       req.user.id,
       estimatedCredits,
       planValidation.userPlan.planType,
@@ -120,7 +120,7 @@ router.post('/query', unifiedAuth, validateResearchInput, asyncErrorHandler(asyn
       const creditDifference = actualCredits - estimatedCredits;
       if (creditDifference > 0) {
         // Need to charge more credits
-        const additionalDeduction = await improvedCreditSystem.deductCreditsAtomic(
+        const additionalDeduction = await creditSystem.deductCreditsAtomic(
           req.user.id,
           creditDifference,
           planValidation.userPlan.planType
@@ -195,7 +195,7 @@ router.post('/query', unifiedAuth, validateResearchInput, asyncErrorHandler(asyn
     // Rollback credits on error
     if (creditDeductionResult && creditDeductionResult.success) {
       try {
-        await improvedCreditSystem.rollbackTransaction(
+        await creditSystem.rollbackTransaction(
           req.user.id,
           creditDeductionResult.transactionId,
           creditDeductionResult.creditsDeducted,
@@ -619,7 +619,7 @@ router.post('/validate-sources', unifiedAuth, asyncErrorHandler(async (req, res)
     const estimatedCredits = Math.ceil(sources.length * 0.5); // 0.5 credits per source
 
     // Deduct credits
-    const creditDeductionResult = await atomicCreditSystem.deductCreditsAtomic(
+    const creditDeductionResult = await creditSystem.deductCreditsAtomic(
       req.user.id,
       estimatedCredits,
       planValidation.userPlan.planType,
@@ -712,7 +712,7 @@ router.post('/generate-citations', unifiedAuth, asyncErrorHandler(async (req, re
     const estimatedCredits = Math.ceil(sources.length * 0.3); // 0.3 credits per citation
 
     // Deduct credits
-    const creditDeductionResult = await improvedCreditSystem.deductCreditsAtomic(
+    const creditDeductionResult = await creditSystem.deductCreditsAtomic(
       req.user.id,
       estimatedCredits,
       planValidation.userPlan.planType,
