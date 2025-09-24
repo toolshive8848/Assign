@@ -1,4 +1,5 @@
 const { admin, db, isInitialized } = require('../config/firebase');
+const planLimits = require('../config/planLimits');
 
 /**
  * ImprovedCreditSystem class with enhanced transaction integrity and race condition prevention
@@ -198,17 +199,19 @@ async deductCreditsAtomic(userId, requestedAmount, planType, toolType = 'writing
             };
             
             // Enhanced freemium validation (credit-based, not word-based) 
-            if (planType === 'freemium') {
-                const FREEMIUM_MONTHLY_LIMIT = 200; // 200 credits per month
-                const currentCreditsUsed = currentMonthlyData.creditsUsed || 0;
-                const newCreditsUsed = currentCreditsUsed + requiredCredits;
-                
-                if (newCreditsUsed > FREEMIUM_MONTHLY_LIMIT) {
-                    throw new Error(
-            `Monthly credit limit exceeded. Current: ${currentCreditsUsed}, Requested: ${requiredCredits}, Limit: ${FREEMIUM_MONTHLY_LIMIT}`
+           if (planType === 'freemium') { 
+               const FREEMIUM_CREDIT_LIMIT = planLimits.FREEMIUM.MONTHLY_CREDITS; 
+               const currentCreditsUsed = currentMonthlyData.creditsUsed || 0; 
+               const newCreditsUsed = currentCreditsUsed + requiredCredits;
+
+           if (newCreditsUsed > FREEMIUM_CREDIT_LIMIT) {
+               throw new Error(
+            `Monthly credit limit exceeded. Current: ${currentCreditsUsed}, `
+            + `Requested: ${requiredCredits}, Limit: ${FREEMIUM_CREDIT_LIMIT}`
         );
     }
 }
+
             
             // Calculate new balances with validation
             const newCreditBalance = currentCredits - requiredCredits;
