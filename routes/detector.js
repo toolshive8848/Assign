@@ -103,90 +103,6 @@ router.post('/analyze', unifiedAuth, validateDetectorInput, asyncErrorHandler(as
 }));
 
 /**
- * @route POST /api/detector/remove-all
- * @desc Remove detected issues from content using AI
- * @access Private
- */
-router.post('/remove-all', unifiedAuth, validateDetectorInput, handleValidationErrors, asyncErrorHandler(async (req, res) => {
-  try {
-    const { content, detectionResults, options = {} } = req.body;
-    const userId = req.user.id;
-
-    // Validate input
-    if (!content || typeof content !== 'string') {
-      return res.status(400).json({
-        error: 'Content is required and must be a string'
-      });
-    }
-
-    if (!detectionResults || typeof detectionResults !== 'object') {
-      return res.status(400).json({
-        error: 'Detection results are required'
-      });
-    }
-
-    if (content.trim().length === 0) {
-      return res.status(400).json({
-        error: 'Content cannot be empty'
-      });
-    }
-
-    // Check word count limit - 1000 words for all users
-    const wordCount = detectorService.calculateWordCount(content);
-    if (wordCount > 1000) {
-      return res.status(400).json({
-        error: 'Content exceeds maximum limit of 1000 words'
-      });
-    }
-
-    // Check if there are any issues to remove
-    const hasIssues = (
-      (detectionResults.plagiarism && detectionResults.plagiarism.score > 30) ||
-      (detectionResults.aiContent && detectionResults.aiContent.score > 70) ||
-      (detectionResults.readability && detectionResults.readability.fleschKincaidGrade > 12)
-    );
-
-    if (!hasIssues) {
-      return res.status(400).json({
-        error: 'No significant issues detected to remove',
-        message: 'Content appears to be in good condition'
-      });
-    }
-
-    // Remove detected issues
-    const result = await detectorService.removeDetectedIssues(userId, content, detectionResults, options);
-
-    res.json({
-      success: true,
-      message: 'Content issues removed successfully',
-      data: result
-    });
-
-  } catch (error) {
-    console.error('Detector removal error:', error);
-    
-    if (error.message.includes('Insufficient credits')) {
-      return res.status(402).json({
-        error: 'Insufficient credits',
-        message: error.message
-      });
-    }
-    
-    if (error.message.includes('requires Pro or Custom plan')) {
-      return res.status(403).json({
-        error: 'Plan upgrade required',
-        message: error.message
-      });
-    }
-
-    res.status(500).json({
-      error: 'Content improvement failed',
-      message: 'An error occurred while improving the content'
-    });
-  }
-}));
-
-/**
  * @route GET /api/detector/history
  * @desc Get detection history for the user
  * @access Private
@@ -222,11 +138,12 @@ router.get('/history', unifiedAuth, asyncErrorHandler(async (req, res) => {
 }));
 
 /**
- * @route POST /api/detector/workflow
- * @desc Complete workflow: detect and remove issues with two-cycle loop
+ * @route POST /api/detector/remove-all
+ * @desc Remove all issues (full workflow: detect → rewrite → re-detect)
  * @access Private
  */
-router.post('/workflow', unifiedAuth, validateDetectorInput, handleValidationErrors, asyncErrorHandler(async (req, res) => {
+router.post('/remove-all', unifiedAuth, validateDetectorInput, handleValidationErrors, asyncErrorHandler(async (req, res) => {
+
   try {
     const { content, options = {} } = req.body;
     const userId = req.user.id;
@@ -237,7 +154,7 @@ router.post('/workflow', unifiedAuth, validateDetectorInput, handleValidationErr
         error: 'Content is required and must be a string'
       });
     }
-
+    
     if (content.trim().length === 0) {
       return res.status(400).json({
         error: 'Content cannot be empty'
