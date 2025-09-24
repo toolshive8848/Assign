@@ -25,65 +25,51 @@ class PlanValidator {
 };
 
     }
-       estimateCreditsNeeded(wordCount, planType, toolType = "writing") {
-    const creditSystem = new ImprovedCreditSystem();
-    const ratios = creditSystem.CREDIT_RATIOS;
-
-    if (toolType === "detector_detection") {
-        return Math.ceil((wordCount / 1000) * 50);
+          estimateCreditsNeeded(wordCount, planType, toolType = "writing", quality = "standard") {
+        const creditSystem = new ImprovedCreditSystem();
+        return creditSystem.calculateRequiredCredits(wordCount, toolType, quality);
     }
 
-    const ratio = ratios[toolType] || ratios.writing;
-    return Math.ceil(wordCount / ratio);
-}
-
-    /**
-     * Validate user request against plan limitations
-     * @param {number} userId - User ID
-     * @param {string} prompt - User's input prompt
-     * @param {number} requestedWordCount - Requested output word count
-     * @param {string} toolType - Type of tool ('writing' or 'research')
-     * @returns {Object} Validation result
+       /**
+     * Validate if user has enough credits for the request
      */
-    async validateRequest(userId, prompt, requestedWordCount, toolType = 'writing') {
+    async validateCreditAvailability(userId, requestedWordCount, planType, toolType = 'writing', quality = 'standard') {
         try {
-            // Get user plan information
-            const userPlan = await this.getUserPlan(userId);
-            if (!userPlan) {
+            const creditSystem = new ImprovedCreditSystem();
+            const estimatedCredits = creditSystem.calculateRequiredCredits(requestedWordCount, toolType, quality);
+
+            const { availableCredits } = await this.getUserCredits(userId);
+
+            if (availableCredits < estimatedCredits) {
                 return {
                     isValid: false,
-                    error: 'User plan not found',
-                    errorCode: 'PLAN_NOT_FOUND'
+                    error: 'Insufficient credits',
+                    errorCode: 'INSUFFICIENT_CREDITS',
+                    availableCredits,
+                    estimatedCredits
                 };
             }
 
-            const planLimits = this.limits[userPlan.planType]; 
-            if (!planLimits) {
-                return {
-                    isValid: false,
-                    error: 'Invalid plan type',
-                    errorCode: 'INVALID_PLAN'
-    };
-}
+            return {
+                isValid: true,
+                estimatedCredits,
+                availableCredits
+            };
+        } catch (error) {
+            logger.error("Error validating credit availability", { 
+                service: "PlanValidator", 
+                method: "validateCreditAvailability", 
+                userId, 
+                error: error.message 
+            });
+            return {
+                isValid: false,
+                error: 'Failed to validate credits',
+                errorCode: 'CREDIT_VALIDATION_ERROR'
+            };
+        }
+    }
 
-         // ✅ Only check credits now (no word length checks) 
-            const creditValidation = await this.validateCreditAvailability(
-                userId,
-                requestedWordCount,
-                userPlan.planType,
-                toolType
-     );
-
-          if (!creditValidation.isValid) {
-              return creditValidation; 
-          }
-
-          return {
-              isValid: true,
-              userPlan,
-              requestedWordCount,
-              estimatedCredits: creditValidation.estimatedCredits
-     };
 
     /**
      * Validate monthly usage limits for freemium users
