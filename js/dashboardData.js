@@ -63,8 +63,18 @@ class DashboardData {
 
       if (!res.ok) throw new Error("Failed to fetch history");
 
-      const data = await res.json();
-      return data;
+     const data = await res.json();
+return {
+  stats: data.stats || {
+    total: 0,
+    completed: 0,
+    inProgress: 0,
+    failed: 0,
+    totalWords: 0,
+  },
+  history: data.history || [],
+};
+
     } catch (err) {
       console.error("Recent history error:", err);
       return {
@@ -89,14 +99,16 @@ class DashboardData {
     const list = document.getElementById("activityList");
     if (!list) return;
 
-    list.innerHTML = activities
-      .map(
-        (a) =>
-          `<li>${a.action} - ${new Date(
-            a.createdAt.seconds * 1000
-          ).toLocaleString()}</li>`
-      )
-      .join("");
+   list.innerHTML = activities
+  .map(
+    (a) => `
+      <li>${a.action} - ${
+        a.createdAt?.seconds
+          ? new Date(a.createdAt.seconds * 1000).toLocaleString()
+          : new Date(a.createdAt).toLocaleString()
+      }</li>`
+  )
+  .join("");
   }
 
   renderHistoryStats(stats) {
@@ -128,7 +140,12 @@ class DashboardData {
         <td>${h.title || "Untitled"}</td>
         <td>${h.type}</td>
         <td>${h.wordCount || 0}</td>
-        <td>${new Date(h.createdAt).toLocaleDateString()}</td>
+        <td>${
+  h.createdAt?.seconds
+    ? new Date(h.createdAt.seconds * 1000).toLocaleDateString()
+    : new Date(h.createdAt).toLocaleDateString()
+}</td>
+
       </tr>`
       )
       .join("");
