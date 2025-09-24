@@ -15,22 +15,11 @@ class PlanValidator {
             CUSTOM: 'custom'
         };
         
-        this.limits = {
-            freemium: {
-                maxPromptLength: 500, // words
-                maxOutputPerRequest: 1000, // words
-                // No monthly limits - purely credit-based system
-            },
-            pro: {
-                maxPromptLength: 5000, // words
-                maxOutputPerRequest: null, // unlimited (credit-based)
-                // No monthly limits - purely credit-based system
-            },
-            custom: {
-                maxPromptLength: 5000, // words
-                maxOutputPerRequest: null, // unlimited (credit-based)
-                // No monthly limits - purely credit-based system
-            }
+       this.limits = {
+           freemium: {
+               monthlyCredits: 200,   // example: 200 credits/month },
+               pro: { monthlyCredits: 2000,  // example: 2000 credits/month },
+               custom: { monthlyCredits: null,  // unlimited or defined by contract }
         };
     }
 
@@ -54,157 +43,33 @@ class PlanValidator {
                 };
             }
 
-            const planLimits = this.limits[userPlan.planType];
+            const planLimits = this.limits[userPlan.planType]; 
             if (!planLimits) {
                 return {
                     isValid: false,
                     error: 'Invalid plan type',
                     errorCode: 'INVALID_PLAN'
-                };
-            }
+    };
+}
 
-            // 1. Check prompt length limits
-            const promptWordCount = this.countWords(prompt);
-            const promptValidation = this.validatePromptLength(userPlan.planType, promptWordCount);
-            if (!promptValidation.isValid) {
-                return promptValidation;
-            }
-
-            // 2. Check output word count limits per request
-            const outputValidation = this.validateOutputWordCount(userPlan.planType, requestedWordCount);
-            if (!outputValidation.isValid) {
-                return outputValidation;
-            }
-
-            // 3. Check credit availability (no monthly limits - purely credit-based system)
-            const creditValidation = await this.validateCreditAvailability(userId, requestedWordCount, userPlan.planType, toolType);
-            if (!creditValidation.isValid) {
-                return creditValidation;
-            }
-
-            return {
-                isValid: true,
-                userPlan,
-                promptWordCount,
+         // ✅ Only check credits now (no word length checks) 
+            const creditValidation = await this.validateCreditAvailability(
+                userId,
                 requestedWordCount,
-                estimatedCredits: creditValidation.estimatedCredits
-            };
+                userPlan.planType,
+                toolType
+     );
 
-        } catch (error) {
-            logger.error('Error validating request', {
-                service: 'PlanValidator',
-                method: 'validateRequest',
-                userId,
-                error: error.message
-            });
-            return {
-                isValid: false,
-                error: 'Validation failed',
-                errorCode: 'VALIDATION_ERROR',
-                details: error.message
-            };
-        }
-    }
+          if (!creditValidation.isValid) {
+              return creditValidation; 
+          }
 
-    /**
-     * Validate user plan for specific tool access
-     * @param {number} userId - User ID
-     * @param {Object} options - Validation options
-     * @returns {Object} Validation result
-     */
-    async validateUserPlan(userId, options = {}) {
-        try {
-            const userPlan = await this.getUserPlan(userId);
-            if (!userPlan) {
-                return {
-                    isValid: false,
-                    error: 'User plan not found',
-                    errorCode: 'PLAN_NOT_FOUND'
-                };
-            }
-
-            // Add hasDetectorAccess property based on plan type
-            // Now all users have detector access with the new requirements
-            userPlan.hasDetectorAccess = true;
-            
-            // Add hasResearcherAccess property based on plan type
-            // Now all users have researcher access with credit-based system
-            userPlan.hasResearcherAccess = true;
-
-            return {
-                isValid: true,
-                userPlan
-            };
-
-        } catch (error) {
-            logger.error('Error validating user plan', {
-                service: 'PlanValidator',
-                method: 'validateUserPlan',
-                userId,
-                error: error.message
-            });
-            return {
-                isValid: false,
-                error: 'Plan validation failed',
-                errorCode: 'VALIDATION_ERROR',
-                details: error.message
-            };
-        }
-    }
-
-    /**
-     * Validate prompt length against plan limits
-     * @param {string} planType - User's plan type
-     * @param {number} promptWordCount - Word count of the prompt
-     * @returns {Object} Validation result
-     */
-    validatePromptLength(planType, promptWordCount) {
-        const maxPromptLength = this.limits[planType].maxPromptLength;
-        
-        if (maxPromptLength && promptWordCount > maxPromptLength) {
-            const errorMessage = planType === this.planTypes.FREEMIUM 
-                ? 'Upgrade to Pro to use longer prompts!'
-                : `Prompt length exceeds maximum limit of ${maxPromptLength} words.`;
-                
-            return {
-                isValid: false,
-                error: errorMessage,
-                errorCode: 'PROMPT_TOO_LONG',
-                currentLength: promptWordCount,
-                maxLength: maxPromptLength,
-                planType
-            };
-        }
-
-        return { isValid: true };
-    }
-
-    /**
-     * Validate output word count against plan limits
-     * @param {string} planType - User's plan type
-     * @param {number} requestedWordCount - Requested output word count
-     * @returns {Object} Validation result
-     */
-    validateOutputWordCount(planType, requestedWordCount) {
-        const maxOutputPerRequest = this.limits[planType].maxOutputPerRequest;
-        
-        if (maxOutputPerRequest && requestedWordCount > maxOutputPerRequest) {
-            const errorMessage = planType === this.planTypes.FREEMIUM
-                ? `Freemium users can generate up to ${maxOutputPerRequest} words per request. Upgrade to Pro for unlimited generation!`
-                : `Output word count exceeds maximum limit of ${maxOutputPerRequest} words per request.`;
-                
-            return {
-                isValid: false,
-                error: errorMessage,
-                errorCode: 'OUTPUT_LIMIT_EXCEEDED',
-                requestedCount: requestedWordCount,
-                maxCount: maxOutputPerRequest,
-                planType
-            };
-        }
-
-        return { isValid: true };
-    }
+          return {
+              isValid: true,
+              userPlan,
+              requestedWordCount,
+              estimatedCredits: creditValidation.estimatedCredits
+     };
 
     /**
      * Validate monthly usage limits for freemium users
