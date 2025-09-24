@@ -197,16 +197,18 @@ async deductCreditsAtomic(userId, requestedAmount, planType, toolType = 'writing
                 createdAt: new Date()
             };
             
-            // Enhanced freemium validation
+            // Enhanced freemium validation (credit-based, not word-based) 
             if (planType === 'freemium') {
-                const FREEMIUM_MONTHLY_LIMIT = 1000;
-                const currentWords = currentMonthlyData.wordsGenerated || 0;
-                const newMonthlyWords = currentWords + wordCount;
+                const FREEMIUM_MONTHLY_LIMIT = 200; // 200 credits per month
+                const currentCreditsUsed = currentMonthlyData.creditsUsed || 0;
+                const newCreditsUsed = currentCreditsUsed + requiredCredits;
                 
-                if (newMonthlyWords > FREEMIUM_MONTHLY_LIMIT) {
-                    throw new Error(`Monthly word limit exceeded. Current: ${currentWords}, Requested: ${wordCount}, Limit: ${FREEMIUM_MONTHLY_LIMIT}`);
-                }
-            }
+                if (newCreditsUsed > FREEMIUM_MONTHLY_LIMIT) {
+                    throw new Error(
+            `Monthly credit limit exceeded. Current: ${currentCreditsUsed}, Requested: ${requiredCredits}, Limit: ${FREEMIUM_MONTHLY_LIMIT}`
+        );
+    }
+}
             
             // Calculate new balances with validation
             const newCreditBalance = currentCredits - requiredCredits;
@@ -342,9 +344,17 @@ async deductCreditsAtomic(userId, requestedAmount, planType, toolType = 'writing
                 
                 // Calculate restored balances with validation
                 const restoredBalance = (userData.credits || 0) + creditsToRestore;
-                const newMonthlyWords = Math.max(0, (monthlyData.wordsGenerated || 0) - wordsToDeduct);
+
+                // Always rollback credits 
                 const newMonthlyCredits = Math.max(0, (monthlyData.creditsUsed || 0) - creditsToRestore);
+
+                // Only rollback words if toolType isn’t detector (since detector uses credits only) 
+                const newMonthlyWords = Math.max(
+                    0,
+                    (monthlyData.wordsGenerated || 0) - (toolType === 'detector' ? 0 : wordsToDeduct) 
+                ); 
                 const newRequestCount = Math.max(0, (monthlyData.requestCount || 0) - 1);
+
                 
                 // Update user with rollback
                 transaction.update(userRef, {
