@@ -25,8 +25,12 @@ function formatItem(item, type) {
     status: item.status || "completed",
     wordCount: item.wordCount || 0,
     creditsUsed: item.creditsUsed || 0,
-    preview: item.content?.slice(0, 200) || item.result?.summary || "",
-    createdAt: item.createdAt || new Date(),
+   preview: item.content?.slice(0, 200) 
+  || item.result?.summary 
+  || item.optimizedPrompt?.slice(0, 200) 
+  || item.analysis?.overall?.feedback 
+  || "",
+    createdAt: item.timestamp?.toDate?.() || item.createdAt || new Date(),
     metadata: item.metadata || {},
   };
 }
@@ -44,7 +48,7 @@ router.get("/", authenticateToken, async (req, res) => {
       contentHistory.getHistory(userId),
       researchService.getHistory(userId),
       detectorService.getHistory(userId),
-      promptService.getHistory(userId),
+      promptService.getPromptHistory(userId, 20),
     ]);
 
     // Merge all items
@@ -57,9 +61,9 @@ router.get("/", authenticateToken, async (req, res) => {
     ];
 
     // Apply filter
-    if (filter !== "all") {
-      history = history.filter((h) => h.status === filter);
-    }
+   if (filter !== "all") {
+  history = history.filter((h) => h.type === filter || h.status === filter);
+}
 
     // Sort newest first
     history.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -131,10 +135,12 @@ router.delete("/:id", authenticateToken, async (req, res) => {
     const { id } = req.params;
     const userId = req.user.uid;
 
-    await contentHistory.delete(userId, id);
-    await researchService.delete(userId, id);
-    await detectorService.delete(userId, id);
-    await promptService.delete(userId, id);
+    const { type } = req.query; // 🔹 pass ?type=writer|research|detector|prompt
+
+if (type === "writer") await contentHistory.delete(userId, id);
+else if (type === "research") await researchService.delete(userId, id);
+else if (type === "detector") await detectorService.delete(userId, id);
+// ❌ promptService has no delete
 
     res.json({ success: true });
   } catch (err) {
