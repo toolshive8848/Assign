@@ -316,36 +316,51 @@ Return JSON:
         }
     }
 
-    async getPromptHistory(userId, limit = 20) {
-        try {
-            if (this.db) {
-                const optimizations = await this.db.collection('promptOptimizations')
-                    .where('userId', '==', userId)
-                    .orderBy('timestamp', 'desc')
-                    .limit(limit)
-                    .get();
+   async getPromptHistory(userId, limit = 20, type = "all", cursor = null) {
+    try {
+        if (!this.db) return [];
 
-                const analyses = await this.db.collection('promptAnalyses')
-                    .where('userId', '==', userId)
-                    .orderBy('timestamp', 'desc')
-                    .limit(limit)
-                    .get();
+        let history = [];
 
-                const history = [
-                    ...optimizations.docs.map(doc => ({ id: doc.id, type: 'optimization', ...doc.data() })),
-                    ...analyses.docs.map(doc => ({ id: doc.id, type: 'analysis', ...doc.data() }))
-                ];
+        // 🔹 Build queries dynamically based on type
+        const collections = [];
+        if (type === "all" || type === "optimization") collections.push("promptOptimizations");
+        if (type === "all" || type === "analysis") collections.push("promptAnalyses");
 
-                history.sort((a, b) => b.timestamp?.toMillis() - a.timestamp?.toMillis());
+        for (const col of collections) {
+            let queryRef = this.db
+                .collection(col)
+                .where("userId", "==", userId)
+                .orderBy("timestamp", "desc")
+                .limit(limit);
 
-                return history;
-            } else {
-                return [];
+            // Apply cursor if provided
+            if (cursor) {
+                const cursorDoc = await this.db.collection(col).doc(cursor).get();
+                if (cursorDoc.exists) {
+                    queryRef = queryRef.startAfter(cursorDoc);
+                }
             }
-        } catch (error) {
-            throw new Error('Failed to retrieve prompt history');
+
+            const snapshot = await queryRef.get();
+            history.push(
+                ...snapshot.docs.map(doc => ({
+                    id: doc.id,
+                    type: col === "promptOptimizations" ? "optimization" : "analysis",
+                    ...doc.data()
+                }))
+            );
         }
+
+        // 🔹 Sort across collections by timestamp
+        history.sort((a, b) => b.timestamp?.toMillis() - a.timestamp?.toMillis());
+
+        // Apply final limit (combined results from both collections)
+        return history.slice(0, limit);
+    } catch (error) {
+        throw new Error("Failed to retrieve prompt history: " + error.message);
     }
+}
 
     getQuickTemplates() {
         return {
