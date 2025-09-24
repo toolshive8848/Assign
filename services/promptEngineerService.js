@@ -21,21 +21,6 @@ class PromptEngineerService {
 
         this.creditSystem = new ImprovedCreditSystem();
         this.planValidator = new PlanValidator();
-
-        // Service-level credit ratios (internal logic)
-        this.CREDIT_RATIOS = {
-            input: 20,   // 1 credit per 20 input words
-            output: 10   // 1 credit per 10 output words
-        };
-
-        // Must match ImprovedCreditSystem.CREDIT_RATIOS.promptEngineer
-        this.PROMPT_ENGINEER_RATIO = 5; 
-    }
-
-    calculateCreditsNeeded(inputWords, outputWords) {
-        const inputCredits = Math.ceil(inputWords / this.CREDIT_RATIOS.input);
-        const outputCredits = Math.ceil(outputWords / this.CREDIT_RATIOS.output);
-        return inputCredits + outputCredits;
     }
 
     calculateWordCount(text) {
@@ -84,18 +69,38 @@ Prompt to analyze:
         }
     }
 
-    async checkLimitsAndCredits(userId, inputWords, estimatedOutputWords) {
-        const planValidation = await this.planValidator.validateUserPlan(userId);
-        const userPlan = planValidation.isValid ? (planValidation.plan || 'free') : 'free';
+   async checkLimitsAndCredits(userId, inputWords, estimatedOutputWords) {
+    const planValidation = await this.planValidator.validateRequest(
+        userId,
+        "", // no need to pass content here, just checking credits
+        inputWords + estimatedOutputWords,
+        "promptEngineer"
+    );
 
+    if (!planValidation.isValid) {
         return {
-            canProceed: true,
-            creditsNeeded: this.calculateCreditsNeeded(inputWords, estimatedOutputWords),
-            limitExceeded: false,
-            userPlan,
-            message: ''
+            canProceed: false,
+            creditsNeeded: 0,
+            limitExceeded: true,
+            userPlan: planValidation.userPlan || "free",
+            message: planValidation.error || "Plan validation failed"
         };
     }
+
+    // 🔹 Use ImprovedCreditSystem directly
+    const creditsNeeded = this.creditSystem.calculateRequiredCredits(
+        inputWords + estimatedOutputWords,
+        "promptEngineer"
+    );
+
+    return {
+        canProceed: true,
+        creditsNeeded,
+        limitExceeded: false,
+        userPlan: planValidation.userPlan,
+        message: ""
+    };
+}
 
     async optimizePrompt(originalPrompt, category = 'general', userId) {
         try {
@@ -112,7 +117,7 @@ Prompt to analyze:
             let billingWords = 0;
 
             if (limitCheck.creditsNeeded > 0) {
-                billingWords = (limitCheck.creditsNeeded || 0) * this.PROMPT_ENGINEER_RATIO;
+                billingWords = inputWords + estimatedOutputWords;
 
                 creditTransaction = await this.creditSystem.deductCreditsAtomic(
                     userId,
@@ -218,7 +223,7 @@ Return JSON:
             let billingWords = 0;
 
             if (limitCheck.creditsNeeded > 0) {
-                billingWords = (limitCheck.creditsNeeded || 0) * this.PROMPT_ENGINEER_RATIO;
+                billingWords = inputWords + estimatedOutputWords;
 
                 creditTransaction = await this.creditSystem.deductCreditsAtomic(
                     userId,
@@ -293,7 +298,7 @@ Return JSON:
                 currentCredits = 100;
             }
 
-            return { success: true, userPlan, currentCredits, creditRatios: this.CREDIT_RATIOS };
+            return { success: true, userPlan, currentCredits, creditRatios: this.creditSystem.CREDIT_RATIOS };
         } catch (error) {
             throw new Error('Failed to get credit information');
         }
