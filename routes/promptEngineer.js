@@ -127,11 +127,13 @@ router.post('/analyze', verifyToken, async (req, res) => {
     }
 });
 
-// Get prompt history endpoint
+// Get prompt history endpoint (with pagination + filtering + summary)
 router.get('/history', verifyToken, async (req, res) => {
     try {
         const userId = req.user.uid;
         const limit = parseInt(req.query.limit) || 20;
+        const type = req.query.type || 'all'; // 'analysis' | 'optimization' | 'all'
+        const cursor = req.query.cursor || null; // pagination cursor (last doc id)
 
         if (limit > 100) {
             return res.status(400).json({ 
@@ -139,10 +141,28 @@ router.get('/history', verifyToken, async (req, res) => {
             });
         }
 
-        const history = await promptService.getPromptHistory(userId, limit);
+        // Fetch history from service
+        const history = await promptService.getPromptHistory(userId, limit + 1, type, cursor);
+
+        // Handle pagination
+        const hasMore = history.length > limit;
+        const items = hasMore ? history.slice(0, limit) : history;
+        const nextCursor = hasMore ? history[limit - 1]?.id : null;
+
+        // Calculate credit summary
+        const totalCreditsUsed = items.reduce((sum, h) => sum + (h.creditsUsed || 0), 0);
+
         res.json({
             success: true,
-            history
+            history: items,
+            pagination: {
+                hasMore,
+                nextCursor
+            },
+            summary: {
+                totalCreditsUsed,
+                count: items.length
+            }
         });
 
     } catch (error) {
