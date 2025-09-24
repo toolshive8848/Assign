@@ -1,6 +1,9 @@
-const db = require('../database/db');
+const admin = require('firebase-admin');
+const { doc, getDoc } = require('firebase-admin/firestore');
+const db = admin.firestore();
 const UsageTracker = require('./usageTracker');
 const { logger } = require('../utils/logger');
+const ImprovedCreditSystem = require("./improvedCreditSystem");
 
 /**
  * PlanValidator class handles user plan validation and freemium restrictions
@@ -16,12 +19,23 @@ class PlanValidator {
         };
         
        this.limits = {
-           freemium: {
-               monthlyCredits: 200,   // example: 200 credits/month },
-               pro: { monthlyCredits: 2000,  // example: 2000 credits/month },
-               custom: { monthlyCredits: null,  // unlimited or defined by contract }
-        };
+    freemium: { monthlyCredits: 200 },   // example: 200 credits/month
+    pro: { monthlyCredits: 2000 },       // example: 2000 credits/month
+    custom: { monthlyCredits: null }     // unlimited or defined by contract
+};
+
     }
+       estimateCreditsNeeded(wordCount, planType, toolType = "writing") {
+    const creditSystem = new ImprovedCreditSystem();
+    const ratios = creditSystem.CREDIT_RATIOS;
+
+    if (toolType === "detector_detection") {
+        return Math.ceil((wordCount / 1000) * 50);
+    }
+
+    const ratio = ratios[toolType] || ratios.writing;
+    return Math.ceil(wordCount / ratio);
+}
 
     /**
      * Validate user request against plan limitations
@@ -77,120 +91,44 @@ class PlanValidator {
      * @param {number} requestedWordCount - Requested output word count
      * @returns {Object} Validation result
      */
-    async validateMonthlyLimits(userId, requestedWordCount) {
-        try {
-            const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM format
-            
-            // Get current month's usage
-            const monthlyUsage = await this.getMonthlyUsage(userId, currentMonth);
-            
-            const monthlyWordLimit = this.limits.freemium.monthlyWordLimit;
-            const monthlyCreditLimit = this.limits.freemium.monthlyCreditLimit;
-            
-            // Check word limit
-            if (monthlyUsage.totalWords >= monthlyWordLimit) {
-                return {
-                    isValid: false,
-                    error: 'Monthly word limit reached. Upgrade to Pro for unlimited generation!',
-                    errorCode: 'MONTHLY_WORD_LIMIT_REACHED',
-                    currentUsage: monthlyUsage.totalWords,
-                    monthlyLimit: monthlyWordLimit
-                };
-            }
-            
-            // Check if this request would exceed the monthly word limit
-            if (monthlyUsage.totalWords + requestedWordCount > monthlyWordLimit) {
-                return {
-                    isValid: false,
-                    error: `This request would exceed your monthly word limit. Remaining: ${monthlyWordLimit - monthlyUsage.totalWords} words.`,
-                    errorCode: 'MONTHLY_WORD_LIMIT_WOULD_EXCEED',
-                    currentUsage: monthlyUsage.totalWords,
-                    requestedWords: requestedWordCount,
-                    remainingWords: monthlyWordLimit - monthlyUsage.totalWords,
-                    monthlyLimit: monthlyWordLimit
-                };
-            }
-            
-            // Check credit limit
-            if (monthlyUsage.totalCredits >= monthlyCreditLimit) {
-                return {
-                    isValid: false,
-                    error: 'Monthly credit limit reached. Upgrade to Pro for unlimited generation!',
-                    errorCode: 'MONTHLY_CREDIT_LIMIT_REACHED',
-                    currentUsage: monthlyUsage.totalCredits,
-                    monthlyLimit: monthlyCreditLimit
-                };
-            }
-            
-            return {
-                isValid: true,
-                monthlyUsage,
-                remainingWords: monthlyWordLimit - monthlyUsage.totalWords,
-                remainingCredits: monthlyCreditLimit - monthlyUsage.totalCredits
-            };
-            
-        } catch (error) {
-            logger.error('Error validating monthly limits', {
-                service: 'PlanValidator',
-                method: 'validateMonthlyLimits',
-                userId,
-                error: error.message
-            });
-            return {
-                isValid: false,
-                error: 'Failed to validate monthly limits',
-                errorCode: 'MONTHLY_VALIDATION_ERROR'
-            };
-        }
-    }
+    async validateMonthlyLimits(userId, requestedCredits) {
+    try {
+        const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+        const monthlyUsage = await this.getMonthlyUsage(userId, currentMonth);
 
-    /**
-     * Validate credit availability for the request
-     * @param {number} userId - User ID
-     * @param {number} requestedWordCount - Requested output word count
-     * @param {string} planType - User's plan type
-     * @param {string} toolType - Type of tool ('writing' or 'research')
-     * @returns {Object} Validation result
-     */
-    async validateCreditAvailability(userId, requestedWordCount, planType, toolType = 'writing') {
-        try {
-            // Get user's current credit balance
-            const userCredits = await this.getUserCredits(userId);
-            
-            // Estimate credits needed for this request
-            const estimatedCredits = this.estimateCreditsNeeded(requestedWordCount, planType, toolType);
-            
-            if (userCredits.availableCredits < estimatedCredits) {
-                return {
-                    isValid: false,
-                    error: 'Insufficient credits for this request',
-                    errorCode: 'INSUFFICIENT_CREDITS',
-                    availableCredits: userCredits.availableCredits,
-                    estimatedCredits,
-                    planType
-                };
-            }
-            
-            return {
-                isValid: true,
-                availableCredits: userCredits.availableCredits,
-                estimatedCredits
-            };
-            
-        } catch (error) {
-            logger.error('Error validating credit availability', {
-                service: 'PlanValidator',
-                method: 'validateCreditAvailability',
-                userId,
-                error: error.message
-            });
+        const monthlyCreditLimit = this.limits.freemium.monthlyCredits;
+
+        if (monthlyCreditLimit && monthlyUsage.totalCredits >= monthlyCreditLimit) {
             return {
                 isValid: false,
-                error: 'Failed to validate credit availability',
-                errorCode: 'CREDIT_VALIDATION_ERROR'
+                error: 'Monthly credit limit reached. Upgrade to Pro for more credits!',
+                errorCode: 'MONTHLY_CREDIT_LIMIT_REACHED',
+                currentUsage: monthlyUsage.totalCredits,
+                monthlyLimit: monthlyCreditLimit
             };
         }
+
+        return {
+            isValid: true,
+            monthlyUsage,
+            remainingCredits: monthlyCreditLimit
+                ? monthlyCreditLimit - monthlyUsage.totalCredits
+                : null
+        };
+    } catch (error) {
+        logger.error('Error validating monthly limits', {
+            service: 'PlanValidator',
+            method: 'validateMonthlyLimits',
+            userId,
+            error: error.message
+        });
+        return {
+            isValid: false,
+            error: 'Failed to validate monthly limits',
+            errorCode: 'MONTHLY_VALIDATION_ERROR'
+        };
     }
+}
 
     /**
      * Get user plan information
@@ -198,42 +136,25 @@ class PlanValidator {
      * @returns {Object} User plan data
      */
     async getUserPlan(userId) {
-        try {
-            const query = `
-                SELECT 
-                    u.id,
-                    u.plan_type,
-                    u.credits,
-                    u.created_at,
-                    u.updated_at
-                FROM users u 
-                WHERE u.id = ?
-            `;
-            
-            const result = await db.query(query, [userId]);
-            
-            if (result.length === 0) {
-                return null;
-            }
-            
-            return {
-                userId: result[0].id,
-                planType: result[0].plan_type || this.planTypes.FREEMIUM,
-                credits: result[0].credits || 0,
-                createdAt: result[0].created_at,
-                updatedAt: result[0].updated_at
-            };
-            
-        } catch (error) {
-            logger.error('Error getting user plan', {
-                service: 'PlanValidator',
-                method: 'getUserPlan',
-                userId,
-                error: error.message
-            });
-            throw error;
-        }
+    try {
+        const userRef = db.collection("users").doc(userId);
+        const snap = await userRef.get();
+
+        if (!snap.exists) return null;
+
+        const data = snap.data();
+        return {
+            userId,
+            planType: data.planType || this.planTypes.FREEMIUM,
+            credits: data.credits || 0,
+            createdAt: data.createdAt,
+            updatedAt: data.updatedAt
+        };
+    } catch (error) {
+        logger.error("Error getting user plan", { method: "getUserPlan", error: error.message });
+        throw error;
     }
+}
 
     /**
      * Get monthly usage for a user (delegated to UsageTracker)
@@ -261,61 +182,19 @@ class PlanValidator {
      * @returns {Object} Credit information
      */
     async getUserCredits(userId) {
-        try {
-            const query = `
-                SELECT credits 
-                FROM users 
-                WHERE id = ?
-            `;
-            
-            const result = await db.query(query, [userId]);
-            
-            if (result.length === 0) {
-                throw new Error('User not found');
-            }
-            
-            return {
-                availableCredits: result[0].credits || 0
-            };
-            
-        } catch (error) {
-            logger.error('Error getting user credits', {
-                service: 'PlanValidator',
-                method: 'getUserCredits',
-                userId,
-                error: error.message
-            });
-            throw error;
-        }
-    }
+    try {
+        const userRef = db.collection("users").doc(userId);
+        const snap = await userRef.get();
 
-    /**
-     * Estimate credits needed for content generation
-     * @param {number} wordCount - Requested word count
-     * @param {string} planType - User's plan type
-     * @param {string} toolType - Type of tool ('writing' or 'research')
-     * @returns {number} Estimated credits
-     */
-    estimateCreditsNeeded(wordCount, planType, toolType = 'writing') {
-        // Credit ratios for different tools (purely credit-based, no plan multipliers)
-        const ratios = {
-            writing: 3,              // 1 credit per 3 words for Writer/Assignments
-            research: 5,             // 1 credit per 5 words for Research Tool
-            detector_detection: 0.05, // 50 credits per 1000 words for Detector Detection
-            detector_generation: 5,   // 1 credit per 5 words for Detector Generation
-            prompt_engineer: 100     // 1 credit per 100 words for Prompt Engineer
-        };
-        
-        const ratio = ratios[toolType] || ratios.writing;
-        
-        // For detector detection, calculate differently (50 credits per 1000 words)
-        if (toolType === 'detector_detection') {
-            return Math.ceil((wordCount / 1000) * 50);
-        }
-        
-        // For other tools, use standard ratio calculation
-        return Math.ceil(wordCount / ratio);
+        if (!snap.exists) throw new Error("User not found");
+
+        const data = snap.data();
+        return { availableCredits: data.credits || 0 };
+    } catch (error) {
+        logger.error("Error getting user credits", { method: "getUserCredits", error: error.message });
+        throw error;
     }
+}
 
     /**
      * Count words in text
