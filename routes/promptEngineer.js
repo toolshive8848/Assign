@@ -1,11 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const PromptEngineerService = require('../services/promptEngineerService');
-const AtomicCreditSystem = require('../services/atomicCreditSystem');
+const ImprovedCreditSystem = require('../services/improvedCreditSystem');
 const admin = require('firebase-admin');
 
 const promptService = new PromptEngineerService();
-const atomicCredit = new AtomicCreditSystem();
+const creditSystem = new ImprovedCreditSystem();
 
 // Middleware to verify Firebase ID token
 const verifyToken = async (req, res, next) => {
@@ -33,15 +33,6 @@ router.post('/optimize', verifyToken, async (req, res) => {
         if (!prompt || prompt.trim().length === 0) {
             return res.status(400).json({ 
                 error: 'Prompt is required and cannot be empty' 
-            });
-        }
-
-        // Calculate word count for validation
-        const wordCount = prompt.trim().split(/\s+/).filter(word => word.length > 0).length;
-        
-        if (wordCount > 15000) {
-            return res.status(400).json({ 
-                error: 'Prompt exceeds maximum length of 15,000 words' 
             });
         }
 
@@ -97,15 +88,6 @@ router.post('/analyze', verifyToken, async (req, res) => {
         if (!prompt || prompt.trim().length === 0) {
             return res.status(400).json({ 
                 error: 'Prompt is required and cannot be empty' 
-            });
-        }
-
-        // Calculate word count for validation
-        const wordCount = prompt.trim().split(/\s+/).filter(word => word.length > 0).length;
-        
-        if (wordCount > 15000) {
-            return res.status(400).json({ 
-                error: 'Prompt exceeds maximum length of 15,000 words' 
             });
         }
 
@@ -191,16 +173,14 @@ router.get('/templates', (req, res) => {
 router.get('/credits', verifyToken, async (req, res) => {
     try {
         const userId = req.user.uid;
-        const credits = await atomicCredit.getUserCredits(userId);
-        
-        res.json({
-            success: true,
-            credits: credits,
-            costs: {
-                optimization: promptService.OPTIMIZATION_CREDITS,
-                analysis: promptService.ANALYSIS_CREDITS
-            }
-        });
+        const credits = await creditSystem.getUserCredits(userId);
+
+res.json({
+    success: true,
+    credits,
+    costs: creditSystem.CREDIT_RATIOS.promptEngineer
+});
+
     } catch (error) {
         console.error('Get credits error:', error);
         res.status(500).json({ 
@@ -242,35 +222,5 @@ router.get('/credit-info', verifyToken, async (req, res) => {
     }
 });
 
-// Free prompt analysis (no authentication required)
-router.post('/analyze-free', async (req, res) => {
-    try {
-        const { prompt } = req.body;
-
-        if (!prompt || prompt.trim().length === 0) {
-            return res.status(400).json({ 
-                error: 'Prompt is required and cannot be empty' 
-            });
-        }
-
-        // Calculate word count for validation
-        const wordCount = prompt.trim().split(/\s+/).filter(word => word.length > 0).length;
-        
-        if (wordCount > 2000) {
-            return res.status(400).json({ 
-                error: 'Prompt exceeds maximum length of 2,000 words for free analysis' 
-            });
-        }
-
-        const result = await promptService.analyzePromptFree(prompt);
-        res.json(result);
-
-    } catch (error) {
-        console.error('Free prompt analysis error:', error);
-        res.status(500).json({ 
-            error: 'Failed to analyze prompt' 
-        });
-    }
-});
 
 module.exports = router;
