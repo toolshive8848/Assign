@@ -4,6 +4,7 @@ const db = admin.firestore();
 const UsageTracker = require('./usageTracker');
 const { logger } = require('../utils/logger');
 const ImprovedCreditSystem = require("./improvedCreditSystem");
+const planLimits = require('../config/planLimits');
 
 /**
  * PlanValidator class handles user plan validation and freemium restrictions
@@ -18,10 +19,10 @@ class PlanValidator {
             CUSTOM: 'custom'
         };
         
-       this.limits = {
-    freemium: { monthlyCredits: 200 },   // example: 200 credits/month
-    pro: { monthlyCredits: 2000 },       // example: 2000 credits/month
-    custom: { monthlyCredits: null }     // unlimited or defined by contract
+      this.limits = {
+          freemium: { monthlyCredits: planLimits.FREEMIUM.MONTHLY_CREDITS },
+          pro: { monthlyCredits: planLimits.PRO.MONTHLY_CREDITS },
+          custom: { monthlyCredits: planLimits.CUSTOM.MONTHLY_CREDITS }
 };
 
     }
