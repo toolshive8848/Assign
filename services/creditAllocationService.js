@@ -103,27 +103,42 @@ async function refreshFreemiumCredits(userId) {
 }
 
 /**
- * Allocate credits for PRO plan (after payment)
+ * Allocate credits for PRO plan
+ * @param {string} userId
+ * @param {Object} options
+ * @param {boolean} options.isUpgrade - true if upgrading from freemium, false if top-up
  */
-async function allocateProCredits(userId) {
+async function allocateProCredits(userId, { isUpgrade = false } = {}) {
   const userRef = db.collection("users").doc(userId);
   const userDoc = await userRef.get();
   if (!userDoc.exists) throw new Error("User not found");
 
-  await userRef.update({
-    credits: admin.firestore.FieldValue.increment(CREDIT_CONFIG.PRO.monthlyCredits),
-    lastCreditAllocation: admin.firestore.FieldValue.serverTimestamp()
-  });
-
-  return { success: true, credits: CREDIT_CONFIG.PRO.monthlyCredits };
+  if (isUpgrade) {
+    // Reset credits on upgrade
+    await userRef.update({
+      credits: CREDIT_CONFIG.PRO.monthlyCredits,
+      planType: "pro",
+      lastCreditAllocation: admin.firestore.FieldValue.serverTimestamp()
+    });
+    return { success: true, credits: CREDIT_CONFIG.PRO.monthlyCredits, mode: "upgrade" };
+  } else {
+    // Top-up credits if already pro
+    await userRef.update({
+      credits: admin.firestore.FieldValue.increment(CREDIT_CONFIG.PRO.monthlyCredits),
+      lastCreditAllocation: admin.firestore.FieldValue.serverTimestamp()
+    });
+    return { success: true, credits: CREDIT_CONFIG.PRO.monthlyCredits, mode: "topup" };
+  }
 }
 
 /**
- * Allocate credits for CUSTOM plan (after payment)
+ * Allocate credits for CUSTOM plan
  * @param {string} userId
  * @param {number} amountPaid - in USD
+ * @param {Object} options
+ * @param {boolean} options.isUpgrade - true if upgrading from freemium, false if top-up
  */
-async function allocateCustomCredits(userId, amountPaid) {
+async function allocateCustomCredits(userId, amountPaid, { isUpgrade = false } = {}) {
   if (amountPaid < CREDIT_CONFIG.CUSTOM.minAmount) {
     throw new Error(`Minimum payment is $${CREDIT_CONFIG.CUSTOM.minAmount}`);
   }
@@ -134,12 +149,22 @@ async function allocateCustomCredits(userId, amountPaid) {
   const userDoc = await userRef.get();
   if (!userDoc.exists) throw new Error("User not found");
 
-  await userRef.update({
-    credits: admin.firestore.FieldValue.increment(creditsToAdd),
-    lastCreditAllocation: admin.firestore.FieldValue.serverTimestamp()
-  });
-
-  return { success: true, credits: creditsToAdd };
+  if (isUpgrade) {
+    // Reset credits on upgrade
+    await userRef.update({
+      credits: creditsToAdd,
+      planType: "custom",
+      lastCreditAllocation: admin.firestore.FieldValue.serverTimestamp()
+    });
+    return { success: true, credits: creditsToAdd, mode: "upgrade" };
+  } else {
+    // Top-up credits
+    await userRef.update({
+      credits: admin.firestore.FieldValue.increment(creditsToAdd),
+      lastCreditAllocation: admin.firestore.FieldValue.serverTimestamp()
+    });
+    return { success: true, credits: creditsToAdd, mode: "topup" };
+  }
 }
 
 module.exports = {
