@@ -214,86 +214,101 @@ router.get('/history/:userId', async (req, res) => {
     }
 });
 
-            // Helper Functions 
+      // Helper Functions 
          async function handleCheckoutSessionCompleted(session) {
-    try {
-        const { userId, credits, type, planName } = session.metadata;
+  try {
+    const { userId, credits, type, planName } = session.metadata;
 
-        if (session.mode === "payment" && credits) {
-            // Handle one-time credit purchase
-            const creditsToAdd = parseInt(credits);
+    if (session.mode === "payment" && credits) {
+      // Handle one-time credit purchase (top-up)
+      const creditsToAdd = parseInt(credits);
 
-            const batch = db.batch();
-            const userRef = db.collection("users").doc(userId);
-            const userDoc = await userRef.get();
+      const batch = db.batch();
+      const userRef = db.collection("users").doc(userId);
+      const userDoc = await userRef.get();
 
-            if (!userDoc.exists) throw new Error("User not found");
-            const userData = userDoc.data();
-            const currentCredits = userData.credits || 0;
+      if (!userDoc.exists) throw new Error("User not found");
+      const userData = userDoc.data();
+      const currentCredits = userData.credits || 0;
 
-            // Update user credits
-            batch.update(userRef, {
-                credits: currentCredits + creditsToAdd,
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
+      // Update user credits (top-up style)
+      batch.update(userRef, {
+        credits: currentCredits + creditsToAdd,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
 
-            // Record payment
-            const paymentRef = db.collection("payments").doc();
-            batch.set(paymentRef, {
-                userId,
-                amount: session.amount_total / 100,
-                currency: session.currency,
-                status: "completed",
-                stripeSessionId: session.id,
-                credits: creditsToAdd,
-                type: "credit_purchase",
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
+      // Record payment (mark as topup)
+      const paymentRef = db.collection("payments").doc();
+      batch.set(paymentRef, {
+        userId,
+        amount: session.amount_total / 100,
+        currency: session.currency,
+        status: "completed",
+        stripeSessionId: session.id,
+        credits: creditsToAdd,
+        type: "credit_purchase",
+        mode: "topup", // ✅ top-up mode
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
 
-            await batch.commit();
-            console.log(`✅ Added ${creditsToAdd} credits to user ${userId} via checkout session`);
-        } 
-        else if (session.mode === "subscription") {
-            // Handle subscription
-            const userRef = db.collection("users").doc(userId);
+      await batch.commit();
+      console.log(`✅ Added ${creditsToAdd} credits to user ${userId} via top-up`);
+    } 
+    else if (session.mode === "subscription") {
+      // Handle subscription
+      const userRef = db.collection("users").doc(userId);
+      const userDoc = await userRef.get();
+      if (!userDoc.exists) throw new Error("User not found");
+      const userData = userDoc.data();
 
-            await userRef.update({
-                subscriptionId: session.subscription,
-                subscriptionStatus: "active",
-                customerId: session.customer,
-                planType: (planName || "Pro").toLowerCase().includes("custom") ? "custom" : "pro",
-                planName: planName || "Pro Plan",
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
+      // Detect if upgrade (user was freemium before)
+      const isUpgrade = !userData.subscriptionId || userData.planType === "freemium";
 
-            // Allocate credits based on plan
-            if ((planName || "").toLowerCase() === "pro plan") {
-                await creditAllocationService.allocateProCredits(userId);
-            } 
-            else if ((planName || "").toLowerCase() === "custom plan") {
-                const amountPaid = session.amount_total / 100;
-                await creditAllocationService.allocateCustomCredits(userId, amountPaid);
-            }
+      await userRef.update({
+        subscriptionId: session.subscription,
+        subscriptionStatus: "active",
+        customerId: session.customer,
+        planType: planName?.toLowerCase() || "pro",
+        planName: planName || "Pro Plan",
+        // Reset credits if it's an upgrade
+        credits: isUpgrade ? 0 : admin.firestore.FieldValue.increment(0),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
 
-            // Record subscription payment
-            const paymentRef = db.collection("payments").doc();
-            await paymentRef.set({
-                userId,
-                amount: session.amount_total / 100,
-                currency: session.currency,
-                status: "completed",
-                stripeSessionId: session.id,
-                subscriptionId: session.subscription,
-                type: "subscription",
-                planName: planName || "Pro Plan",
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
+      // Allocate credits based on plan
+      let creditsAllocated = 0;
+      if ((planName || "").toLowerCase() === "pro plan") {
+        const result = await creditAllocationService.allocateProCredits(userId);
+        creditsAllocated = result.credits;
+      } else if ((planName || "").toLowerCase() === "custom plan") {
+        const amountPaid = session.amount_total / 100;
+        const result = await creditAllocationService.allocateCustomCredits(userId, amountPaid);
+        creditsAllocated = result.credits;
+      }
 
-            console.log(`✅ Subscription activated & credits allocated for user ${userId} (${planName})`);
-        }
-    } catch (error) {
-        console.error("Error handling checkout session completion:", error);
+      // Record subscription payment with mode
+      const paymentRef = db.collection("payments").doc();
+      await paymentRef.set({
+        userId,
+        amount: session.amount_total / 100,
+        currency: session.currency,
+        status: "completed",
+        stripeSessionId: session.id,
+        subscriptionId: session.subscription,
+        type: "subscription",
+        planName: planName || "Pro Plan",
+        credits: creditsAllocated,
+        mode: isUpgrade ? "upgrade" : "topup", // ✅ distinguish upgrade vs. top-up
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      console.log(
+        `✅ Subscription ${isUpgrade ? "upgrade" : "top-up"}: allocated ${creditsAllocated} credits to user ${userId} (${planName})`
+      );
     }
+  } catch (error) {
+    console.error("Error handling checkout session completion:", error);
+  }
 }
 
             async function handleSuccessfulPayment(paymentIntent) {
@@ -307,20 +322,20 @@ router.get('/history/:userId', async (req, res) => {
 
         let creditsAllocated = 0;
 
-       if (amountPaid >= 15) {
-         // ✅ Custom plan allocation
-           const result = await creditAllocationService.allocateCustomCredits(userId, amountPaid);
-           await userRef.update({ planType: "custom" });
-           creditsAllocated = result.credits;
+        if (amountPaid >= 15) {
+         // Custom plan allocation 
+            const userDoc = await db.collection("users").doc(userId).get() 
+            const isUpgrade = userDoc.exists && userDoc.data().planType === "freemium";
+            const result = await creditAllocationService.allocateCustomCredits(userId, amountPaid, { isUpgrade });
+            creditsAllocated = result.credits;
 } else {
-      
-         // ✅ Normal credit purchase (from metadata.credits)
-           const creditsToAdd = parseInt(paymentIntent.metadata.credits);
-           await userRef.update({
-           credits: admin.firestore.FieldValue.increment(creditsToAdd),
-           updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
-          creditsAllocated = creditsToAdd;
+         // Normal credit top-up
+            const creditsToAdd = parseInt(paymentIntent.metadata.credits);
+            await userRef.update({
+            credits: admin.firestore.FieldValue.increment(creditsToAdd),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+  });
+            creditsAllocated = creditsToAdd;
 }
 
         // Record payment
