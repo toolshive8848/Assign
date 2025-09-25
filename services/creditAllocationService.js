@@ -17,14 +17,39 @@ async function refreshFreemiumCredits(userId) {
   if (!userDoc.exists) throw new Error("User not found");
   const user = userDoc.data();
 
+  const now = new Date();
+
+  // 🔹 1. Auto-downgrade cancelled paid users → Freemium
+  if (
+    (user.planType === "pro" || user.planType === "custom") &&
+    user.subscriptionStatus === "cancelled"
+  ) {
+    await userRef.update({
+      planType: "freemium",
+      credits: 200,
+      lastCreditRefresh: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return {
+      success: true,
+      downgraded: true,
+      userId,
+      newPlan: "freemium",
+      newCredits: 200,
+      refreshedAt: now,
+    };
+  }
+
+  // 🔹 2. Skip non-freemium users
   if (user.planType !== "freemium") {
     return { skipped: true, reason: "Not a freemium user" };
   }
 
+  // 🔹 3. Normal freemium monthly refresh
   const signupDate = user.createdAt?.toDate
     ? user.createdAt.toDate()
     : new Date(user.createdAt);
-  const now = new Date();
 
   const monthsSinceSignup =
     (now.getFullYear() - signupDate.getFullYear()) * 12 +
