@@ -146,8 +146,8 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
-    // Handle the event
-    switch (event.type) {
+          // Handle the event
+        switch (event.type) {
         case 'checkout.session.completed':
             const session = event.data.object;
             await handleCheckoutSessionCompleted(session);
@@ -214,148 +214,131 @@ router.get('/history/:userId', async (req, res) => {
     }
 });
 
-          // Helper Functions 
-          async function handleCheckoutSessionCompleted(session) {
+            // Helper Functions 
+         async function handleCheckoutSessionCompleted(session) {
     try {
         const { userId, credits, type, planName } = session.metadata;
-        
-        if (session.mode === 'payment' && credits) {
-    if (session.metadata.type === 'pro') {
-        await creditAllocationService.allocateProCredits(userId);
-    } else if (session.metadata.type === 'custom') {
-        const amountPaid = session.amount_total / 100; // Stripe sends in cents
-        await creditAllocationService.allocateCustomCredits(userId, amountPaid);
-    } else {
-        // Default: one-time credit purchase
-        const creditsToAdd = parseInt(credits);
-        const userRef = db.collection('users').doc(userId);
-        await userRef.update({
-            credits: admin.firestore.FieldValue.increment(creditsToAdd),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
-        });
-    }
-}
-            
-            // Get user reference
-            const userRef = db.collection('users').doc(userId);
+
+        if (session.mode === "payment" && credits) {
+            // Handle one-time credit purchase
+            const creditsToAdd = parseInt(credits);
+
+            const batch = db.batch();
+            const userRef = db.collection("users").doc(userId);
             const userDoc = await userRef.get();
-            
-            if (!userDoc.exists) {
-                throw new Error('User not found');
-            }
-            
+
+            if (!userDoc.exists) throw new Error("User not found");
             const userData = userDoc.data();
             const currentCredits = userData.credits || 0;
-            
+
             // Update user credits
             batch.update(userRef, {
                 credits: currentCredits + creditsToAdd,
-                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             });
-            
-            // Record payment in database
-            const paymentRef = db.collection('payments').doc();
+
+            // Record payment
+            const paymentRef = db.collection("payments").doc();
             batch.set(paymentRef, {
-                userId: userId,
+                userId,
                 amount: session.amount_total / 100,
                 currency: session.currency,
-                status: 'completed',
+                status: "completed",
                 stripeSessionId: session.id,
                 credits: creditsToAdd,
-                type: 'credit_purchase',
-                createdAt: admin.firestore.FieldValue.serverTimestamp()
+                type: "credit_purchase",
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
             });
-            
+
             await batch.commit();
-            console.log(`Successfully added ${creditsToAdd} credits to user ${userId} via checkout session`);
-            
-        } else if (session.mode === 'subscription') {
+            console.log(`✅ Added ${creditsToAdd} credits to user ${userId} via checkout session`);
+        } 
+        else if (session.mode === "subscription") {
             // Handle subscription
-            const userRef = db.collection('users').doc(userId);
+            const userRef = db.collection("users").doc(userId);
+
             await userRef.update({
                 subscriptionId: session.subscription,
-                subscriptionStatus: 'active',
+                subscriptionStatus: "active",
                 customerId: session.customer,
-                planName: planName || 'Pro Plan',
-                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                planType: (planName || "Pro").toLowerCase().includes("custom") ? "custom" : "pro",
+                planName: planName || "Pro Plan",
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             });
-            
+
+            // Allocate credits based on plan
+            if ((planName || "").toLowerCase() === "pro plan") {
+                await creditAllocationService.allocateProCredits(userId);
+            } 
+            else if ((planName || "").toLowerCase() === "custom plan") {
+                const amountPaid = session.amount_total / 100;
+                await creditAllocationService.allocateCustomCredits(userId, amountPaid);
+            }
+
             // Record subscription payment
-            const paymentRef = db.collection('payments').doc();
+            const paymentRef = db.collection("payments").doc();
             await paymentRef.set({
-                userId: userId,
+                userId,
                 amount: session.amount_total / 100,
                 currency: session.currency,
-                status: 'completed',
+                status: "completed",
                 stripeSessionId: session.id,
                 subscriptionId: session.subscription,
-                type: 'subscription',
-                planName: planName || 'Pro Plan',
-                createdAt: admin.firestore.FieldValue.serverTimestamp()
+                type: "subscription",
+                planName: planName || "Pro Plan",
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
             });
-            
-            console.log(`Subscription activated for user ${userId} via checkout session`);
+
+            console.log(`✅ Subscription activated & credits allocated for user ${userId} (${planName})`);
         }
-        
     } catch (error) {
-        console.error('Error handling checkout session completion:', error);
+        console.error("Error handling checkout session completion:", error);
     }
 }
 
-async function handleSuccessfulPayment(paymentIntent) {
+            async function handleSuccessfulPayment(paymentIntent) {
     try {
-       if (session.mode === 'payment' && credits) {
-    if (session.metadata.type === 'pro') {
-        await creditAllocationService.allocateProCredits(userId);
-    } else if (session.metadata.type === 'custom') {
-        const amountPaid = session.amount_total / 100; // Stripe sends in cents
-        await creditAllocationService.allocateCustomCredits(userId, amountPaid);
-    } else {
-        // Default: one-time credit purchase
-        const creditsToAdd = parseInt(credits);
-        const userRef = db.collection('users').doc(userId);
-        await userRef.update({
-            credits: admin.firestore.FieldValue.increment(creditsToAdd),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
-        });
-    }
-}
-        
-        // Get user reference
-        const userRef = db.collection('users').doc(userId);
+           const { userId } = paymentIntent.metadata;
+        const amountPaid = paymentIntent.amount / 100; // Stripe sends in cents
+   
+        const userRef = db.collection("users").doc(userId);
         const userDoc = await userRef.get();
-        
-        if (!userDoc.exists) {
-            throw new Error('User not found');
-        }
-        
-        const userData = userDoc.data();
-        const currentCredits = userData.credits || 0;
-        
-        // Update user credits
-        batch.update(userRef, {
-            credits: currentCredits + creditsToAdd,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
-        });
-        
-        // Record payment in database
-        const paymentRef = db.collection('payments').doc();
-        batch.set(paymentRef, {
-            userId: userId,
-            amount: paymentIntent.amount / 100,
+        if (!userDoc.exists) throw new Error("User not found");
+
+        let creditsAllocated = 0;
+
+       if (amountPaid >= 15) {
+         // ✅ Custom plan allocation
+           const result = await creditAllocationService.allocateCustomCredits(userId, amountPaid);
+           await userRef.update({ planType: "custom" });
+           creditsAllocated = result.credits;
+} else {
+      
+         // ✅ Normal credit purchase (from metadata.credits)
+           const creditsToAdd = parseInt(paymentIntent.metadata.credits);
+           await userRef.update({
+           credits: admin.firestore.FieldValue.increment(creditsToAdd),
+           updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+          creditsAllocated = creditsToAdd;
+}
+
+        // Record payment
+        const paymentRef = db.collection("payments").doc();
+        await paymentRef.set({
+            userId,
+            amount: amountPaid,
             currency: paymentIntent.currency,
-            status: 'completed',
+            status: "completed",
             stripePaymentIntentId: paymentIntent.id,
-            credits: creditsToAdd,
+            credits: creditsAllocated,
+            type: amountPaid >= 15 ? "custom_plan" : "credit_purchase",
             createdAt: admin.firestore.FieldValue.serverTimestamp()
         });
-        
-        await batch.commit();
-        console.log(`Successfully added ${creditsToAdd} credits to user ${userId}`);
-        console.log(`Payment recorded for user ${userId}: ${paymentIntent.amount / 100} ${paymentIntent.currency}`);
-        
+
+        console.log(`✅ Payment processed for ${userId}, credits allocated: ${creditsAllocated}`);
     } catch (error) {
-        console.error('Error handling successful payment:', error);
+        console.error("Error handling successful payment:", error);
     }
 }
 
@@ -364,7 +347,7 @@ async function handleSuccessfulSubscription(invoice) {
         const customerId = invoice.customer;
         const subscriptionId = invoice.subscription;
         
-        // Get customer to find userId
+          // Get customer to find userId
         const customer = await stripe.customers.retrieve(customerId);
         const userId = customer.metadata.userId;
         
@@ -385,39 +368,44 @@ async function handleSuccessfulSubscription(invoice) {
 }
 
 async function handleCancelledSubscription(subscription) {
-  try {
-    const customerId = subscription.customer;
-    const subscriptionId = subscription.id;
+    try {
+        const customerId = subscription.customer;
+        const subscriptionId = subscription.id;
 
-    // Find user by subscription ID
-    const usersSnapshot = await db.collection("users")
-      .where("subscriptionId", "==", subscriptionId)
-      .get();
+          // Find user by subscription ID
+        const usersSnapshot = await db.collection("users")
+            .where("subscriptionId", "==", subscriptionId)
+            .get();
 
-    if (usersSnapshot.empty) {
-      console.warn(`No user found for subscription ${subscriptionId}`);
-      return;
-    }
+        if (usersSnapshot.empty) {
+            console.warn(`No user found for cancelled subscription ${subscriptionId}`);
+            return;
+        }
 
-    for (const doc of usersSnapshot.docs) {
-      const userRef = doc.ref;
+        const batch = db.batch();
 
-      // Downgrade user to freemium
-      await userRef.update({
+        for (const doc of usersSnapshot.docs) {
+    const userRef = doc.ref;
+
+         // Downgrade to freemium
+    batch.update(userRef, {
         planType: "freemium",
-        subscriptionId: null,
         subscriptionStatus: "cancelled",
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+        subscriptionId: admin.firestore.FieldValue.delete(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+}
 
-      // Trigger freemium credit refresh
-      await refreshFreemiumCredits(doc.id);
+await batch.commit();
 
-      console.log(`User ${doc.id} downgraded to freemium after cancellation`);
+       // Refresh credits separately (after batch)
+for (const doc of usersSnapshot.docs) {
+    await creditAllocationService.refreshFreemiumCredits(doc.id);
+}
+
+    } catch (error) {
+        console.error("Error handling cancelled subscription:", error);
     }
-  } catch (error) {
-    console.error("Error handling cancelled subscription:", error);
-  }
 }
 
 module.exports = router;
