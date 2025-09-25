@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { admin, db } = require('../config/firebase');
+const creditAllocationService = require("../services/creditAllocationService");
 
 /**
  * Payment Routes for Stripe Integration
@@ -213,17 +214,27 @@ router.get('/history/:userId', async (req, res) => {
     }
 });
 
-// Helper Functions
-
-async function handleCheckoutSessionCompleted(session) {
+          // Helper Functions 
+          async function handleCheckoutSessionCompleted(session) {
     try {
         const { userId, credits, type, planName } = session.metadata;
         
         if (session.mode === 'payment' && credits) {
-            // Handle credit purchase
-            const creditsToAdd = parseInt(credits);
-            
-            const batch = db.batch();
+    if (session.metadata.type === 'pro') {
+        await creditAllocationService.allocateProCredits(userId);
+    } else if (session.metadata.type === 'custom') {
+        const amountPaid = session.amount_total / 100; // Stripe sends in cents
+        await creditAllocationService.allocateCustomCredits(userId, amountPaid);
+    } else {
+        // Default: one-time credit purchase
+        const creditsToAdd = parseInt(credits);
+        const userRef = db.collection('users').doc(userId);
+        await userRef.update({
+            credits: admin.firestore.FieldValue.increment(creditsToAdd),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+    }
+}
             
             // Get user reference
             const userRef = db.collection('users').doc(userId);
@@ -293,10 +304,22 @@ async function handleCheckoutSessionCompleted(session) {
 
 async function handleSuccessfulPayment(paymentIntent) {
     try {
-        const { userId, credits } = paymentIntent.metadata;
+       if (session.mode === 'payment' && credits) {
+    if (session.metadata.type === 'pro') {
+        await creditAllocationService.allocateProCredits(userId);
+    } else if (session.metadata.type === 'custom') {
+        const amountPaid = session.amount_total / 100; // Stripe sends in cents
+        await creditAllocationService.allocateCustomCredits(userId, amountPaid);
+    } else {
+        // Default: one-time credit purchase
         const creditsToAdd = parseInt(credits);
-        
-        const batch = db.batch();
+        const userRef = db.collection('users').doc(userId);
+        await userRef.update({
+            credits: admin.firestore.FieldValue.increment(creditsToAdd),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+    }
+}
         
         // Get user reference
         const userRef = db.collection('users').doc(userId);
