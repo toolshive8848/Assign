@@ -385,29 +385,39 @@ async function handleSuccessfulSubscription(invoice) {
 }
 
 async function handleCancelledSubscription(subscription) {
-    try {
-        const customerId = subscription.customer;
-        const subscriptionId = subscription.id;
-        
-        // Find user by subscription ID and update status
-        const usersSnapshot = await db.collection('users')
-            .where('subscriptionId', '==', subscriptionId)
-            .get();
-        
-        const batch = db.batch();
-        usersSnapshot.forEach(doc => {
-            batch.update(doc.ref, {
-                subscriptionStatus: 'cancelled',
-                updatedAt: admin.firestore.FieldValue.serverTimestamp()
-            });
-        });
-        
-        await batch.commit();
-        console.log(`Subscription cancelled for customer ${customerId}`);
-        
-    } catch (error) {
-        console.error('Error handling cancelled subscription:', error);
+  try {
+    const customerId = subscription.customer;
+    const subscriptionId = subscription.id;
+
+    // Find user by subscription ID
+    const usersSnapshot = await db.collection("users")
+      .where("subscriptionId", "==", subscriptionId)
+      .get();
+
+    if (usersSnapshot.empty) {
+      console.warn(`No user found for subscription ${subscriptionId}`);
+      return;
     }
+
+    for (const doc of usersSnapshot.docs) {
+      const userRef = doc.ref;
+
+      // Downgrade user to freemium
+      await userRef.update({
+        planType: "freemium",
+        subscriptionId: null,
+        subscriptionStatus: "cancelled",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // Trigger freemium credit refresh
+      await refreshFreemiumCredits(doc.id);
+
+      console.log(`User ${doc.id} downgraded to freemium after cancellation`);
+    }
+  } catch (error) {
+    console.error("Error handling cancelled subscription:", error);
+  }
 }
 
 module.exports = router;
