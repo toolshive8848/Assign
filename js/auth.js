@@ -1,39 +1,17 @@
-// Firebase initialization comes from firebase-web.js
-const auth = firebase.auth();
-const db = firebase.firestore();
-
-const authMessage = document.getElementById('auth-message');
-
-// Create Firestore user doc if not exists
-async function createUserDoc(user) {
-  const userRef = db.collection('users').doc(user.uid);
-  const doc = await userRef.get();
-  if (!doc.exists) {
-    await userRef.set({
-      email: user.email,
-      displayName: user.displayName || "",
-      planType: "freemium",
-      credits: 200,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      creditResetDate: firebase.firestore.Timestamp.fromDate(new Date())
+async function initCredits(user) {
+  try {
+    const idToken = await user.getIdToken();
+    await fetch("/api/credits/init", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${idToken}`
+      }
     });
+  } catch (err) {
+    console.error("Failed to initialize credits:", err);
   }
 }
-
-// Email login
-document.getElementById('login-btn').addEventListener('click', async (e) => {
-  e.preventDefault();
-  const email = document.getElementById('email').value;
-  const password = document.getElementById('password').value;
-
-  try {
-    const userCredential = await auth.signInWithEmailAndPassword(email, password);
-    await createUserDoc(userCredential.user);
-    window.location.href = "dashboard.html";
-  } catch (error) {
-    authMessage.textContent = error.message;
-  }
-});
 
 // Signup
 document.getElementById('signup-btn').addEventListener('click', async (e) => {
@@ -43,7 +21,24 @@ document.getElementById('signup-btn').addEventListener('click', async (e) => {
 
   try {
     const userCredential = await auth.createUserWithEmailAndPassword(email, password);
-    await createUserDoc(userCredential.user);
+    await createUserDoc(userCredential.user);  // minimal fields only
+    await initCredits(userCredential.user);    // backend allocates credits
+    window.location.href = "dashboard.html";
+  } catch (error) {
+    authMessage.textContent = error.message;
+  }
+});
+
+// Login
+document.getElementById('login-btn').addEventListener('click', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+
+  try {
+    const userCredential = await auth.signInWithEmailAndPassword(email, password);
+    await createUserDoc(userCredential.user);  // only if not exists
+    await initCredits(userCredential.user);    // backend checks + refreshes
     window.location.href = "dashboard.html";
   } catch (error) {
     authMessage.textContent = error.message;
@@ -56,6 +51,7 @@ document.getElementById('google-login').addEventListener('click', async () => {
   try {
     const result = await auth.signInWithPopup(provider);
     await createUserDoc(result.user);
+    await initCredits(result.user);
     window.location.href = "dashboard.html";
   } catch (error) {
     authMessage.textContent = error.message;
