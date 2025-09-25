@@ -17,14 +17,49 @@ async function refreshFreemiumCredits(userId) {
   if (!userDoc.exists) throw new Error("User not found");
   const user = userDoc.data();
 
-  if (user.planType !== "freemium") return { skipped: true, reason: "Not a freemium user" };
+  if (user.planType !== "freemium") {
+    return { skipped: true, reason: "Not a freemium user" };
+  }
 
-  const signupDate = user.createdAt?.toDate ? user.createdAt.toDate() : new Date(user.createdAt);
+  const signupDate = user.createdAt?.toDate
+    ? user.createdAt.toDate()
+    : new Date(user.createdAt);
   const now = new Date();
 
   const monthsSinceSignup =
     (now.getFullYear() - signupDate.getFullYear()) * 12 +
     (now.getMonth() - signupDate.getMonth());
+
+  // Prevent duplicate refresh in the same month
+  const lastRefreshedMonth = user.lastCreditRefresh
+    ? user.lastCreditRefresh.toDate().getMonth()
+    : null;
+  const lastRefreshedYear = user.lastCreditRefresh
+    ? user.lastCreditRefresh.toDate().getFullYear()
+    : null;
+
+  if (
+    lastRefreshedMonth === now.getMonth() &&
+    lastRefreshedYear === now.getFullYear()
+  ) {
+    return { skipped: true, reason: "Already refreshed this month" };
+  }
+
+  // ✅ Reset credits to 200 for freemium users
+  await userRef.update({
+    credits: 200,
+    lastCreditRefresh: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  return {
+    success: true,
+    userId,
+    newCredits: 200,
+    monthsSinceSignup,
+    refreshedAt: now,
+  };
+}
 
   // Already refreshed for this month?
   if (user.lastCreditRefresh && user.lastCreditRefresh.toDate) {
