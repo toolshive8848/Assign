@@ -1,52 +1,40 @@
-// users.js
 const express = require("express");
 const router = express.Router();
-const { admin, db } = require("../config/firebase");
-const creditAllocationService = require("../services/creditAllocationService");
+const { db, admin } = require("../config/firebase");
 
 /**
- * Refresh credits for the logged-in user
- * POST /api/users/refresh-credits
+ * Initialize user document in Firestore
+ * Ensures freemium users get 200 credits on first login
  */
-router.post("/refresh-credits", async (req, res) => {
+router.post("/init", async (req, res) => {
   try {
-    const { userId } = req.body;
-
-    if (!userId) {
-      return res.status(400).json({ error: "Missing userId" });
+    const { uid, email, displayName } = req.body;
+    if (!uid || !email) {
+      return res.status(400).json({ error: "Missing uid or email" });
     }
 
-    const userRef = db.collection("users").doc(userId);
+    const userRef = db.collection("users").doc(uid);
     const userDoc = await userRef.get();
 
     if (!userDoc.exists) {
-      return res.status(404).json({ error: "User not found" });
-    }
+      // Create new user with 200 credits
+      await userRef.set({
+        email,
+        displayName: displayName || "",
+        planType: "freemium",
+        credits: 200,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastCreditRefresh: admin.firestore.FieldValue.serverTimestamp()
+      });
 
-    const user = userDoc.data();
-
-    let result;
-
-    // Delegate refresh logic to central service
-    if (user.planType === "freemium") {
-      result = await creditAllocationService.refreshFreemiumCredits(userId);
-    } else if (user.planType === "pro") {
-      result = await creditAllocationService.allocateProCredits(userId);
-    } else if (user.planType === "custom") {
-      // Optional: if you support refreshing for custom plans
-      result = { skipped: true, reason: "Custom plan refresh not supported" };
+      return res.json({ success: true, newUser: true, credits: 200 });
     } else {
-      result = { skipped: true, reason: "Unknown plan type" };
+      // User exists → don’t reset credits
+      return res.json({ success: true, newUser: false, ...userDoc.data() });
     }
-
-    res.json({
-      success: true,
-      planType: user.planType,
-      result,
-    });
   } catch (error) {
-    console.error("Error refreshing credits:", error);
-    res.status(500).json({ error: "Failed to refresh credits" });
+    console.error("Error initializing user:", error);
+    res.status(500).json({ error: "Failed to initialize user" });
   }
 });
 
