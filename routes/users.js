@@ -1,100 +1,51 @@
+// users.js
 const express = require("express");
 const router = express.Router();
-const { unifiedAuth } = require("../middleware/unifiedAuth");
-const admin = require("firebase-admin");
-
-const db = admin.firestore();
+const { admin, db } = require("../config/firebase");
+const creditAllocationService = require("../services/creditAllocationService");
 
 /**
- * GET /api/users/profile
- * Returns current user profile
- */
-router.get("/profile", unifiedAuth, async (req, res) => {
-  try {
-    const userId = req.user.uid;
-    const userDoc = await db.collection("users").doc(userId).get();
-
-    if (!userDoc.exists) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    res.json({ id: userId, ...userDoc.data() });
-  } catch (err) {
-    console.error("Error fetching profile:", err);
-    res.status(500).json({ error: "Failed to fetch profile" });
-  }
-});
-
-/**
- * PUT /api/users/profile
- * Update user profile
- */
-router.put("/profile", unifiedAuth, async (req, res) => {
-  try {
-    const userId = req.user.uid;
-    const { displayName } = req.body;
-
-    if (!displayName) {
-      return res.status(400).json({ error: "Display name is required" });
-    }
-
-    await db.collection("users").doc(userId).set(
-      { displayName },
-      { merge: true }
-    );
-
-    res.json({ success: true, message: "Profile updated" });
-  } catch (err) {
-    console.error("Error updating profile:", err);
-    res.status(500).json({ error: "Failed to update profile" });
-  }
-});
-
-/**
- * GET /api/users/stats
- * Returns user stats (credits, usage, etc.)
- */
-router.get("/stats", unifiedAuth, async (req, res) => {
-  try {
-    const userId = req.user.uid;
-    const userDoc = await db.collection("users").doc(userId).get();
-
-    if (!userDoc.exists) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    const data = userDoc.data();
-    res.json({
-      credits: data.credits || 0,
-      planType: data.planType || "freemium",
-      stats: data.stats || {}
-    });
-  } catch (err) {
-    console.error("Error fetching stats:", err);
-    res.status(500).json({ error: "Failed to fetch stats" });
-  }
-});
-
-/**
+ * Refresh credits for the logged-in user
  * POST /api/users/refresh-credits
- * Reset monthly credits (manual/admin or scheduled job)
  */
-router.post("/refresh-credits", unifiedAuth, async (req, res) => {
+router.post("/refresh-credits", async (req, res) => {
   try {
-    const userId = req.user.uid;
-    const resetValue = req.body.credits || 200;
+    const { userId } = req.body;
 
-    await db.collection("users").doc(userId).set(
-      {
-        credits: resetValue,
-        creditResetDate: admin.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
+    if (!userId) {
+      return res.status(400).json({ error: "Missing userId" });
+    }
 
-    res.json({ success: true, message: "Credits refreshed", credits: resetValue });
-  } catch (err) {
-    console.error("Error refreshing credits:", err);
+    const userRef = db.collection("users").doc(userId);
+    const userDoc = await userRef.get();
+
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const user = userDoc.data();
+
+    let result;
+
+    // Delegate refresh logic to central service
+    if (user.planType === "freemium") {
+      result = await creditAllocationService.refreshFreemiumCredits(userId);
+    } else if (user.planType === "pro") {
+      result = await creditAllocationService.allocateProCredits(userId);
+    } else if (user.planType === "custom") {
+      // Optional: if you support refreshing for custom plans
+      result = { skipped: true, reason: "Custom plan refresh not supported" };
+    } else {
+      result = { skipped: true, reason: "Unknown plan type" };
+    }
+
+    res.json({
+      success: true,
+      planType: user.planType,
+      result,
+    });
+  } catch (error) {
+    console.error("Error refreshing credits:", error);
     res.status(500).json({ error: "Failed to refresh credits" });
   }
 });
