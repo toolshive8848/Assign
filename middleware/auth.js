@@ -66,24 +66,6 @@ const requireAdmin = async (req, res, next) => {
 };
 
 /**
- * Premium check (for paid users)
- */
-const requirePremium = async (req, res, next) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Authentication required" });
-
-    if (req.user.planType !== "pro" && req.user.planType !== "custom") {
-      return res.status(403).json({ error: "Premium subscription required" });
-    }
-
-    next();
-  } catch (error) {
-    console.error("Premium check error:", error);
-    return res.status(500).json({ error: "Subscription check failed" });
-  }
-};
-
-/**
  * Optional Auth (does not fail if missing token)
  */
 const optionalAuth = async (req, res, next) => {
@@ -115,6 +97,5 @@ const optionalAuth = async (req, res, next) => {
 module.exports = {
   authenticateToken,
   requireAdmin,
-  requirePremium,
   optionalAuth,
 };
