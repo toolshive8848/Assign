@@ -45,15 +45,18 @@ app.get("/health", (req, res) => res.json({ status: "ok" }));
 // -------------------
 app.use("/api/auth", require("./routes/googleAuth"));
 app.use("/api/users", require("./routes/users"));
-const paymentsRouter = require('./routes/payments');
-app.use('/api/payments/webhook', express.raw({ type: 'application/json' }), paymentsRouter);
-app.use('/api/payments', express.json(), paymentsRouter);
+app.use("/api/payments/webhook", express.raw({ type: 'application/json' }), require("./routes/payments"));
+app.use("/api/payments", express.json(), require("./routes/payments"));
+app.use("/api/credits", require("./routes/credits"));
+app.use("/api/citations", require("./routes/citations"));
+app.use("/api/zotero", require("./routes/zotero"));
+app.use("/api/history", require("./routes/history"));
+
+// Tools
 app.use("/api/research", require("./routes/research"));
 app.use("/api/detector", require("./routes/detector"));
 app.use("/api/prompts", require("./routes/prompts"));
 app.use("/api/writer", require("./routes/writer"));
-app.use("/api/history", require("./routes/history"));
-app.use('/api/credits', require('./routes/credits'));
 
 // -------------------
 // 🔹 ERROR HANDLING
