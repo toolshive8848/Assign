@@ -114,12 +114,6 @@ app.use('/docs', swaggerUi.serve, swaggerUi.setup(specs, {
 const uploadDir = process.env.UPLOAD_DIR || '../uploads';
 app.use('/uploads', express.static(path.join(__dirname, uploadDir)));
 
-// Serve HTML files and assets
-app.use(express.static(__dirname));
-app.use('/assets', express.static(path.join(__dirname, 'assets')));
-app.use('/styles', express.static(path.join(__dirname, 'styles')));
-app.use('/js', express.static(path.join(__dirname, 'js')));
-
 // Firebase is initialized in config/firebase.js
 console.log('Using Firebase as the database');
 
