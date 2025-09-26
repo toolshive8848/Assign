@@ -43,9 +43,8 @@ app.get("/health", (req, res) => res.json({ status: "ok" }));
 // -------------------
 // 🔹 API ROUTES
 // -------------------
-app.use("/api/auth", require("./routes/auth"));
+app.use("/api/auth", require("./routes/googleAuth"));
 app.use("/api/users", require("./routes/users"));
-app.use("/api/assignments", require("./routes/assignments"));
 const paymentsRouter = require('./routes/payments');
 app.use('/api/payments/webhook', express.raw({ type: 'application/json' }), paymentsRouter);
 app.use('/api/payments', express.json(), paymentsRouter);
