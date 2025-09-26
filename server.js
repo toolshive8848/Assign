@@ -125,13 +125,13 @@ console.log('Using Firebase as the database');
 
 // Routes with specific rate limiting
 app.use('/api/auth', rateLimiters.auth, require('./services/firebaseAuth').router);
-app.use('/api/auth', rateLimiters.auth, require('./routes/googleAuth')); // Google OAuth
+app.use('/api/auth', rateLimiters.auth, require('./routes/googleAuth'));
 app.use('/api/users', require('./services/firebaseUsers'));
 app.use('/api/payments/webhook', express.raw({ type: 'application/json' }), require('./routes/payments'));
 app.use('/api/payments', express.json(), require('./routes/payments'));
 app.use('/api/writer', authenticateToken, rateLimiters.general, require('./routes/writer'));
-app.use('/api/research', authenticateToken, require('./routes/research'));
-app.use('/api/detector', authenticateToken, require('./routes/detector'));
+app.use('/api/research', authenticateToken, rateLimiters.general, require('./routes/research'));
+app.use('/api/detector', authenticateToken, rateLimiters.general, require('./routes/detector'));
 app.use('/api/prompt', authenticateToken, rateLimiters.general, require('./routes/promptEngineer'));
 app.use('/api/history', require('./routes/history'));
 app.use('/api/zotero', require('./routes/zotero'));
