@@ -127,16 +127,16 @@ console.log('Using Firebase as the database');
 app.use('/api/auth', rateLimiters.auth, require('./services/firebaseAuth').router);
 app.use('/api/auth', rateLimiters.auth, require('./routes/googleAuth')); // Google OAuth
 app.use('/api/users', require('./services/firebaseUsers'));
-app.use('/api/assignments', require('./services/firebaseAssignments'));
-app.use('/api/payments', require('./services/firebasePayments'));
-app.use('/api/research', require('./research'));
-app.use('/api/detector', require('./routes/detector'));
-app.use('/api/prompt', rateLimiters.generation, require('./routes/promptEngineer'));
-app.use('/api/writer', rateLimiters.generation, require('./routes/writer'));
+app.use('/api/payments/webhook', express.raw({ type: 'application/json' }), require('./routes/payments'));
+app.use('/api/payments', express.json(), require('./routes/payments'));
+app.use('/api/writer', authenticateToken, rateLimiters.general, require('./routes/writer'));
+app.use('/api/research', authenticateToken, require('./routes/research'));
+app.use('/api/detector', authenticateToken, require('./routes/detector'));
+app.use('/api/prompt', authenticateToken, rateLimiters.general, require('./routes/promptEngineer'));
 app.use('/api/history', require('./routes/history'));
 app.use('/api/zotero', require('./routes/zotero'));
 app.use('/api/citations', require('./routes/citations'));
-app.use('/api/credit-test', require('./routes/creditTest'));
+app.use('/api/credits', require('./routes/credits'));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
